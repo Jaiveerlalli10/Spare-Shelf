@@ -70,7 +70,7 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == userId;
     }
 
-    // Chats: only the two people in a chat can see it or send messages in it.
+    // Chats (one per pair of people): only the two people in a chat can see it or send messages in it.
     match /chats/{chatId} {
       allow read: if signedIn() && request.auth.uid in resource.data.members;
       allow create: if signedIn() && request.auth.uid in request.resource.data.members;
@@ -81,8 +81,12 @@ service cloud.firestore {
         function isMember() {
           return request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
         }
+        // getAfter: the first message can be sent in the same batch that creates the chat.
+        function isMemberAfter() {
+          return request.auth.uid in getAfter(/databases/$(database)/documents/chats/$(chatId)).data.members;
+        }
         allow read: if signedIn() && isMember();
-        allow create: if signedIn() && isMember() && request.resource.data.senderId == request.auth.uid;
+        allow create: if signedIn() && isMemberAfter() && request.resource.data.senderId == request.auth.uid;
       }
     }
   }

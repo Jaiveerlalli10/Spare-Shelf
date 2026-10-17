@@ -133,3 +133,17 @@ export function noTripReason(post, user) {
   if (post.status === "open") return "When a neighbor offers to help, you'll get directions to them here.";
   return `Ask ${post.claimedByName} in chat where to pick it up.`;
 }
+
+/**
+ * The place name shown on your posts, from your profile: your dorm or apartment name,
+ * or just the street for a street address (no house number, since posts are public).
+ */
+export function publicPlaceLabel(profile) {
+  const label = ((profile && profile.housingLabel) || "").trim();
+  if (!label) return "";
+  if (profile.housingKind === "address") {
+    const street = label.replace(/^\s*\d+[A-Za-z]?(?:-[\dA-Za-z]+)?\s+/, "").replace(/\s*(?:#|apt\.?|unit)\s*\S+$/i, "");
+    return street || "Near campus";
+  }
+  return label;
+}

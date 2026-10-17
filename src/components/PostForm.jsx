@@ -8,7 +8,8 @@ const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn
 // `initial` (optional) pre-fills the form, e.g. when sharing an item from the pantry.
 // `posts` is used to hide pantry entries that are already on the board.
 // `origin` is the poster's housing location from their profile (a rounded version is saved for distances).
-export default function PostForm({ user, posts, origin, onDone, initial }) {
+// `homeLabel` is the place name from their profile (like "Alder Hall"), used as the post's location.
+export default function PostForm({ user, posts, origin, homeLabel, onDone, initial }) {
   const [form, setForm] = useState({ ...EMPTY, ...initial });
   const [pantry, setPantry] = useState([]);
 
@@ -33,14 +34,14 @@ export default function PostForm({ user, posts, origin, onDone, initial }) {
 
   async function submit(e) {
     e.preventDefault();
-    if (!form.item.trim() || !form.location.trim()) {
-      setError("Please fill in the item and pickup area.");
+    if (!form.item.trim()) {
+      setError("Please fill in the ingredient.");
       return;
     }
     setSaving(true);
     setError("");
     try {
-      await createPost(user, { ...form, origin });
+      await createPost(user, { ...form, location: homeLabel || "Near campus", origin });
       setForm(EMPTY);
       onDone();
     } catch (err) {
@@ -80,19 +81,16 @@ export default function PostForm({ user, posts, origin, onDone, initial }) {
           <input name="estValue" type="number" min="0" step="0.5" value={form.estValue} onChange={update} placeholder="3" />
         </label>
       </div>
-      <div className="row">
-        <label>Pickup area
-          <input name="location" value={form.location} onChange={update} placeholder="e.g. Alder Hall lobby" />
+      {form.type === "offer" && (
+        <label>Best by (optional)
+          <input name="expiresOn" type="date" value={form.expiresOn} onChange={update} />
         </label>
-        {form.type === "offer" && (
-          <label>Best by (optional)
-            <input name="expiresOn" type="date" value={form.expiresOn} onChange={update} />
-          </label>
-        )}
-      </div>
+      )}
       <label>Notes (allergens, pickup times…)
         <textarea name="notes" rows="2" value={form.notes} onChange={update} />
       </label>
+
+      <p className="muted form-place">📍 Posting from <strong>{homeLabel || "near campus"}</strong> (from your profile)</p>
 
       {error && <p className="error">{error}</p>}
       <button className="btn primary" disabled={saving}>{saving ? "Posting…" : "Post"}</button>

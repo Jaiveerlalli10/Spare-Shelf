@@ -362,24 +362,44 @@ export async function removePantryItem(user, item) {
 
 // ---------- Messages ----------
 //
-// One chat per claimed post, stored at chats/{postId}:
-// { postId, item, ownerId, ownerName, claimerId, claimerName, members: [ownerId, claimerId],
+// ONE chat per pair of people (however many posts they trade), stored at chats/{pairId},
+// where pairId is the two uids sorted and joined with "__":
+// { members: [uidA, uidB] (sorted), names: { [uid]: name }, item: the latest item they talked about,
 //   lastMessage, lastAt, lastSenderId, lastRead: { [uid]: milliseconds } }
-// Messages live at chats/{postId}/messages/{id}: { senderId, senderName, text, createdAt }
+// Messages live at chats/{pairId}/messages/{id}: { senderId, senderName, text, createdAt }
+//
+// Older versions made one chat per post (chats/{postId}, with ownerId/claimerId fields).
+// Those still load; the inbox merges them into the same conversation as the pair chat.
 
-function chatInfo(post) {
-  return {
-    postId: post.id, item: post.item,
-    ownerId: post.ownerId, ownerName: post.ownerName,
-    claimerId: post.claimedById, claimerName: post.claimedByName,
-    members: [post.ownerId, post.claimedById],
-  };
+/** The chat id for two people (same no matter who's first). */
+export function pairId(a, b) {
+  return [a, b].sort().join("__");
 }
 
-/** Makes sure the chat for this claimed post exists (safe to call more than once). */
-export async function ensureChat(post) {
-  if (!isDemoMode) return setDoc(doc(db, "chats", post.id), chatInfo(post), { merge: true });
-  demo.ensureChat(chatInfo(post));
+/** The other person in a chat, { id, name }. Works for pair chats and older per-post chats. */
+export function chatOther(chat, user) {
+  const id = (chat.members || []).find((m) => m !== user.uid) || "";
+  const name = (chat.names && chat.names[id]) || (chat.ownerId === id ? chat.ownerName : chat.claimerName) || "Neighbor";
+  return { id, name };
+}
+
+/** Makes sure the chat between two people ({ id, name } each) exists. Safe to call again. Returns its id. */
+export async function ensurePairChat(a, b, item) {
+  const id = pairId(a.id, b.id);
+  const info = { members: [a.id, b.id].sort(), names: { [a.id]: a.name, [b.id]: b.name } };
+  if (item) info.item = item;
+  if (!isDemoMode) await setDoc(doc(db, "chats", id), info, { merge: true });
+  else demo.ensureChat(id, info);
+  return id;
+}
+
+/** The chat for a claimed post: the poster and the claimer's one shared chat. Returns its id. */
+export function ensureChat(post) {
+  return ensurePairChat(
+    { id: post.ownerId, name: post.ownerName },
+    { id: post.claimedById, name: post.claimedByName },
+    post.item
+  );
 }
 
 const byLatest = (chats) => chats.sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
@@ -417,15 +437,18 @@ export function watchMessages(chatId, callback, onError) {
   return demo.on("chats", send);
 }
 
+/** Sends a message in the pair chat `chat` ({ id, members }). Creates the chat if it doesn't exist yet. */
 export async function sendMessage(user, chat, text) {
   const msg = { senderId: user.uid, senderName: user.name, text: text.trim(), createdAt: Date.now() };
   if (!isDemoMode) {
-    // Save the message and update the chat's preview together.
+    // Save the message and update the chat's preview together. "set + merge" also creates
+    // the chat if needed (members must be included for the security rules).
     const batch = writeBatch(db);
+    batch.set(doc(db, "chats", chat.id), {
+      members: chat.members, names: { [user.uid]: user.name },
+      lastMessage: msg.text, lastAt: msg.createdAt, lastSenderId: user.uid, lastRead: { [user.uid]: msg.createdAt },
+    }, { merge: true });
     batch.set(doc(collection(db, "chats", chat.id, "messages")), msg);
-    batch.update(doc(db, "chats", chat.id), {
-      lastMessage: msg.text, lastAt: msg.createdAt, lastSenderId: user.uid, [`lastRead.${user.uid}`]: msg.createdAt,
-    });
     return batch.commit();
   }
   demo.addMessage(chat.id, msg);
@@ -527,9 +550,7 @@ const demo = (() => {
     saveChats();
   };
   // In demo mode the other person is fake, so they "reply" and "confirm" on their own.
-  const otherPerson = (chat, user) => chat.ownerId === user.uid
-    ? { id: chat.claimerId, name: chat.claimerName }
-    : { id: chat.ownerId, name: chat.ownerName };
+  const otherPerson = (chat, user) => chatOther(chat, user);
 
   return {
     on(kind, fn) { listeners[kind].add(fn); return () => listeners[kind].delete(fn); },
@@ -563,10 +584,10 @@ const demo = (() => {
 
     getChats: () => [...chats],
     getMessages: (id) => [...(messages[id] || [])],
-    ensureChat(info) {
-      const exists = chats.some((c) => c.id === info.postId);
-      if (exists) updateChat(info.postId, (c) => ({ ...c, ...info }));
-      else chats = [...chats, { id: info.postId, lastMessage: "", lastAt: 0, lastSenderId: "", lastRead: {}, ...info }];
+    ensureChat(id, info) {
+      const existing = chats.find((c) => c.id === id);
+      if (existing) updateChat(id, (c) => ({ ...c, ...info, names: { ...c.names, ...info.names } }));
+      else chats = [...chats, { id, lastMessage: "", lastAt: 0, lastSenderId: "", lastRead: {}, ...info }];
       saveChats();
     },
     addMessage,
@@ -590,9 +611,9 @@ const demo = (() => {
       if (otherDone) return;
       setTimeout(() => {
         setPosts(posts.map((p) => (p.id === postId ? { ...p, [otherField]: true, status: "completed" } : p)));
-        const chat = chats.find((c) => c.id === postId);
+        const chat = chats.find((c) => c.id === pairId(post.ownerId, post.claimedById));
         const other = chat && otherPerson(chat, user);
-        if (other) addMessage(postId, { senderId: other.id, senderName: other.name, text: "Confirmed on my end too. Thanks! 🙏", createdAt: Date.now() });
+        if (other) addMessage(chat.id, { senderId: other.id, senderName: other.name, text: "Confirmed on my end too. Thanks! 🙏", createdAt: Date.now() });
       }, 2000);
     },
   };

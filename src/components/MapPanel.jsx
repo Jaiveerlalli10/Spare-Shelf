@@ -6,17 +6,24 @@ import "leaflet/dist/leaflet.css";
 import { foodEmoji } from "../foodEmoji";
 import { walkingRoute, stepText, formatWalkDistance } from "../directions";
 import { pickupSpot, noTripReason } from "../location";
+import { useDeviceLocation } from "../useDeviceLocation";
 
 const CAMPUS = [47.6553, -122.3035]; // fallback center: UW Seattle
 // Standard OpenStreetMap tiles (free, no key). They're darkened with a CSS filter (.leaflet-tile-pane in styles.css).
 const TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const ROUTE_COLOR = "#a334fa";
+// Post pins are turned off for now. Set to true to show an emoji pin for every active post again.
+const SHOW_POST_PINS = false;
 
 const hasSpot = (p) => p && Number.isFinite(p.approxLat) && Number.isFinite(p.approxLng);
 
-// `here`: your housing { lat, lng } (or null). `target`: the selected post (or null).
-export default function MapPanel({ here, posts, user, target, onSelect, onClear }) {
+const REROUTE_METERS = 50; // walk this far from where the route started before it re-routes
+
+// `here`: your housing { lat, lng } from your profile (or null), with `homeLabel` its name.
+// `target`: the selected post (or null).
+// Directions start from the device's live location when the browser allows it, otherwise from `here`.
+export default function MapPanel({ here, homeLabel, posts, user, target, onSelect, onClear }) {
   const boxRef = useRef(null);
   const mapRef = useRef(null);
   const pinsRef = useRef(null);
@@ -28,6 +35,26 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
   const [route, setRoute] = useState(null); // { distance, duration, steps, straight }
   const [routeState, setRouteState] = useState("idle"); // idle | loading | ready
   const [showSteps, setShowSteps] = useState(false);
+
+  // Live device location: asked for the first time someone wants directions (or taps ◎).
+  const [wantLive, setWantLive] = useState(false);
+  useEffect(() => { if (target) setWantLive(true); }, [target?.id]);
+  const device = useDeviceLocation(wantLive);
+  const origin = device.pos
+    ? { lat: device.pos.lat, lng: device.pos.lng, accuracy: device.pos.accuracy, live: true }
+    : here ? { lat: here.lat, lng: here.lng, live: false } : null;
+
+  // Where the current route starts. Only moves after walking REROUTE_METERS, so GPS jitter
+  // doesn't re-route constantly.
+  const [routeFrom, setRouteFrom] = useState(null);
+  useEffect(() => {
+    if (!origin) { setRouteFrom(null); return; }
+    setRouteFrom((prev) => {
+      const moved = prev ? L.latLng(prev.lat, prev.lng).distanceTo([origin.lat, origin.lng]) : Infinity;
+      if (prev && prev.live === origin.live && moved < REROUTE_METERS) return prev;
+      return { lat: origin.lat, lng: origin.lng, live: origin.live };
+    });
+  }, [origin?.lat, origin?.lng, origin?.live]);
 
   // Create the map once.
   useEffect(() => {
@@ -46,26 +73,38 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
     };
   }, []);
 
-  // "You" dot.
+  // "You" dot (live location if allowed, otherwise your profile address), plus an accuracy circle.
+  const centeredOn = useRef(""); // re-center only when switching between profile and live location
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     if (meRef.current) meRef.current.remove();
     meRef.current = null;
-    if (!here) return;
-    meRef.current = L.marker([here.lat, here.lng], {
-      icon: L.divIcon({ className: "map-me", html: "<span></span>", iconSize: [22, 22] }),
-      title: "You",
+    if (!origin) return;
+    const layers = [L.marker([origin.lat, origin.lng], {
+      icon: L.divIcon({ className: origin.live ? "map-me live" : "map-me", html: "<span></span>", iconSize: [22, 22] }),
+      title: origin.live ? "You (live location)" : `You (${homeLabel || "your profile"})`,
       zIndexOffset: 1000,
-    }).addTo(map);
-    if (!target) map.setView([here.lat, here.lng], map.getZoom());
-  }, [here?.lat, here?.lng]);
+    })];
+    if (origin.live && origin.accuracy < 500) {
+      layers.unshift(L.circle([origin.lat, origin.lng], {
+        radius: origin.accuracy, color: "#3797f0", weight: 1, opacity: 0.5, fillColor: "#3797f0", fillOpacity: 0.12, interactive: false,
+      }));
+    }
+    meRef.current = L.featureGroup(layers).addTo(map);
+    const mode = origin.live ? "live" : "home";
+    if (!target && centeredOn.current !== mode) {
+      centeredOn.current = mode;
+      map.setView([origin.lat, origin.lng], map.getZoom());
+    }
+  }, [origin?.lat, origin?.lng, origin?.live, origin?.accuracy]);
 
-  // A pin for every post that isn't finished.
+  // A pin for every post that isn't finished (only when SHOW_POST_PINS is on).
   useEffect(() => {
     const layer = pinsRef.current;
     if (!layer) return;
     layer.clearLayers();
+    if (!SHOW_POST_PINS) return;
     const perSpot = {};
     for (const p of posts) {
       if (p.status === "completed" || !hasSpot(p)) continue;
@@ -94,11 +133,13 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
     }
   }, [posts, target?.id, user?.uid]);
 
-  // Active posts that can't be pinned (posted before locations were saved).
+  // Active posts with no saved location (posted before locations were saved), so no directions yet.
   const unpinned = posts.filter((p) => p.status !== "completed" && !hasSpot(p)).length;
 
   // Walking directions from you to wherever you pick the food up (see pickupSpot in location.js).
   const dest = target ? pickupSpot(target, user) : null;
+  const fittedFor = useRef(null);
+  useEffect(() => { if (!target) fittedFor.current = null; }, [target?.id]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -110,7 +151,7 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
       setRouteState("idle");
       return;
     }
-    if (!here || !dest) {
+    if (!routeFrom || !dest) {
       // No trip for you: just show where the post is.
       setRouteState("idle");
       if (hasSpot(target)) map.setView([target.approxLat, target.approxLng], Math.max(map.getZoom(), 16));
@@ -124,13 +165,18 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
       title: `Pick up from ${dest.name}`,
       zIndexOffset: 950,
     });
+    const from = routeFrom;
     const draw = (layers) => {
       routeRef.current = L.featureGroup([...layers, endMarker]).addTo(map);
-      map.fitBounds(routeRef.current.getBounds(), { padding: [48, 48], maxZoom: 17 });
+      // Zoom to the whole route when it's a new destination, not on every re-route while walking.
+      if (fittedFor.current !== target.id) {
+        fittedFor.current = target.id;
+        map.fitBounds(routeRef.current.getBounds(), { padding: [48, 48], maxZoom: 17 });
+      }
     };
     const ctrl = new AbortController();
     setRouteState("loading");
-    walkingRoute(here, to, ctrl.signal)
+    walkingRoute(from, to, ctrl.signal)
       .then((r) => {
         draw([
           L.geoJSON(r.geometry, { style: { color: "#ffffff", weight: 10, opacity: 0.12, lineCap: "round" } }),
@@ -142,29 +188,32 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
       .catch((err) => {
         if (err.name === "AbortError") return;
         // No street route: show a straight dashed line and estimate walking time (~1.35 m/s).
-        const line = L.polyline([[here.lat, here.lng], [to.lat, to.lng]], { color: ROUTE_COLOR, weight: 4, dashArray: "8 10" });
+        const line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], { color: ROUTE_COLOR, weight: 4, dashArray: "8 10" });
         draw([line]);
-        const meters = map.distance([here.lat, here.lng], [to.lat, to.lng]);
+        const meters = map.distance([from.lat, from.lng], [to.lat, to.lng]);
         setRoute({ distance: meters, duration: meters / 1.35, steps: [], straight: true });
         setRouteState("ready");
       });
     return () => ctrl.abort();
-  }, [target?.id, dest?.lat, dest?.lng, here?.lat, here?.lng]);
+  }, [target?.id, dest?.lat, dest?.lng, routeFrom?.lat, routeFrom?.lng]);
 
   return (
     <aside className="map-panel" id="map-panel" aria-label="Map and directions">
       <div className="map-head">
         <h2>🗺️ Map</h2>
         <span className="map-legend">
-          <i className="lg offer" /> Offers <i className="lg request" /> Requests <i className="lg me" /> You
+          {SHOW_POST_PINS && <><i className="lg offer" /> Offers <i className="lg request" /> Requests</>} <i className="lg me" /> You
         </span>
       </div>
 
       <div className="map-wrap">
         <div className="map-box" ref={boxRef} />
-        {here && (
-          <button className="map-recenter" title="Center on you" aria-label="Center the map on you"
-            onClick={() => mapRef.current && mapRef.current.setView([here.lat, here.lng], 16)}>
+        {(origin || navigator.geolocation) && (
+          <button className="map-recenter" title="Center on you (uses your device location)" aria-label="Center the map on you"
+            onClick={() => {
+              setWantLive(true);
+              if (origin && mapRef.current) mapRef.current.setView([origin.lat, origin.lng], 16);
+            }}>
             ◎
           </button>
         )}
@@ -184,7 +233,17 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
           </div>
 
           {!dest && <p className="muted">{noTripReason(target, user)}</p>}
-          {dest && !here && <p className="muted">Finish your profile to get directions from your place.</p>}
+          {dest && !origin && <p className="muted">Allow location access, or finish your profile, to get directions.</p>}
+          {dest && origin && (
+            <p className="map-from">
+              {routeFrom && routeFrom.live
+                ? <>📡 From your current location{device.pos && device.pos.accuracy > 0 && ` (±${Math.round(device.pos.accuracy)} m)`}</>
+                : <>🏠 From {homeLabel || "your profile address"}</>}
+              {device.status === "asking" && <span className="muted"> · Allow location access to start from where you are.</span>}
+              {device.status === "denied" && <span className="muted"> · Location is blocked for this site. Allow it in your browser settings for live directions.</span>}
+              {device.status === "unavailable" && !device.pos && <span className="muted"> · Couldn't get your device location.</span>}
+            </p>
+          )}
           {routeState === "loading" && <p className="muted">Finding a walking route…</p>}
 
           {route && (
@@ -194,7 +253,7 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
                 <span><b>{formatWalkDistance(route.distance)}</b></span>
               </div>
               {route.straight && <p className="muted">Couldn't get street directions, so this is a straight line.</p>}
-              <p className="muted map-approx">Pins are approximate (about a block). Confirm the exact spot in chat.</p>
+              <p className="muted map-approx">The pickup spot is approximate (about a block). Confirm the exact spot in chat.</p>
               {route.steps.length > 0 && (
                 <button className="link" onClick={() => setShowSteps(!showSteps)}>
                   {showSteps ? "Hide steps" : `Show ${route.steps.length} steps`}
@@ -215,11 +274,13 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
         </div>
       ) : (
         <p className="map-hint muted">
-          {here ? "Tap a pin, or a post's 🧭 Directions button, for walking directions." : "Sign in and finish your profile to get directions."}
+          {here
+            ? `Tap a post's 🧭 Directions button for walking directions${SHOW_POST_PINS ? ", or tap a pin" : ""}.`
+            : "Sign in and finish your profile to get directions."}
           {unpinned > 0 && (
             <span className="map-unpinned">
-              {" "}{unpinned} {unpinned === 1 ? "post isn't" : "posts aren't"} on the map yet: {unpinned === 1 ? "it was" : "they were"} posted
-              before locations were saved, and will appear once the poster opens Spare Shelf.
+              {" "}{unpinned} {unpinned === 1 ? "post has" : "posts have"} no location yet ({unpinned === 1 ? "it was" : "they were"} posted
+              before locations were saved), so no directions until the poster opens Spare Shelf.
             </span>
           )}
         </p>
