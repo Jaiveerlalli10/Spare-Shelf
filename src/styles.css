@@ -127,3 +127,15 @@ button, input, textarea { font: inherit; color: inherit; }
   .impact { grid-template-columns: repeat(2, 1fr); }
   .form .row { flex-direction: column; gap: 0; }
 }
+
+/* Pantry tab */
+.pantry-alert {
+  background: var(--request-bg); color: var(--text); padding: 8px 12px;
+  border-radius: 10px; font-size: 0.9rem; margin: 0 0 10px;
+}
+.pantry-list { list-style: none; margin: 0; padding: 0; }
+.pantry-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.pantry-item.soon { border-left: 4px solid var(--warn); }
+.pantry-item .expiry { font-size: 0.85rem; }
+.pantry-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.pantry-note { text-align: center; }

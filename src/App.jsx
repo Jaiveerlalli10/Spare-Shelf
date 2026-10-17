@@ -5,14 +5,16 @@ import { watchUser, watchPosts, signIn, signOut, isDemoMode, resetDemoData } fro
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
+import Pantry from "./components/Pantry";
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
-  const [tab, setTab] = useState("board"); // "board" or "mine"
+  const [tab, setTab] = useState("board"); // "board", "mine" or "pantry"
   const [filter, setFilter] = useState("all"); // "all", "offer", "request"
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState(null); // pre-filled post when sharing from the pantry
 
   // Start listening to sign-in state and posts when the page loads.
   useEffect(() => watchUser(setUser), []);
@@ -26,10 +28,30 @@ export default function App() {
     return watchPosts(setPosts);
   }, [uid]);
 
+  // "My posts" and "Pantry" need a signed-in user; fall back to the board otherwise.
+  const activeTab = user ? tab : "board";
+
+  function openForm(prefill) {
+    setDraft(prefill ? { ...prefill, key: Date.now() } : null);
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setDraft(null);
+  }
+
+  // Pantry "Share" button: switch to the board with an Offer already filled in.
+  function shareFromPantry(item) {
+    setTab("board");
+    openForm({ type: "offer", item: item.name, quantity: item.quantity, expiresOn: item.expiresOn });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   const term = search.trim().toLowerCase();
   const visible = posts.filter((p) => {
-    if (tab === "board" && p.status === "completed") return false;
-    if (tab === "mine" && !(user && (p.ownerId === user.uid || p.claimedById === user.uid))) return false;
+    if (activeTab === "board" && p.status === "completed") return false;
+    if (activeTab === "mine" && !(p.ownerId === user.uid || p.claimedById === user.uid)) return false;
     if (filter !== "all" && p.type !== filter) return false;
     if (term && !`${p.item} ${p.location} ${p.notes}`.toLowerCase().includes(term)) return false;
     return true;
@@ -66,41 +88,53 @@ export default function App() {
 
       <div className="toolbar">
         <div className="tabs" role="tablist">
-          <button className={tab === "board" ? "tab active" : "tab"} onClick={() => setTab("board")}>Board</button>
-          <button className={tab === "mine" ? "tab active" : "tab"} onClick={() => setTab("mine")} disabled={!user}>My posts</button>
+          {["board", "mine", "pantry"].map((t) => (
+            <button key={t} className={activeTab === t ? "tab active" : "tab"} onClick={() => setTab(t)}
+              disabled={t !== "board" && !user}>
+              {t === "board" ? "Board" : t === "mine" ? "My posts" : "Pantry"}
+            </button>
+          ))}
         </div>
-        {user && (
-          <button className="btn primary" onClick={() => setShowForm(!showForm)}>
+        {user && activeTab !== "pantry" && (
+          <button className="btn primary" onClick={() => (showForm ? closeForm() : openForm(null))}>
             {showForm ? "Close" : "+ New post"}
           </button>
         )}
       </div>
 
-      {showForm && user && <PostForm user={user} onDone={() => setShowForm(false)} />}
+      {showForm && user && activeTab !== "pantry" && (
+        <PostForm key={draft ? draft.key : "new"} user={user} initial={draft} onDone={closeForm} />
+      )}
 
-      <div className="filters">
-        {["all", "offer", "request"].map((f) => (
-          <button key={f} className={filter === f ? "chip active" : "chip"} onClick={() => setFilter(f)}>
-            {f === "all" ? "All" : f === "offer" ? "Offers" : "Requests"}
-          </button>
-        ))}
-        <input
-          className="search"
-          placeholder="Search eggs, rice, Alder Hall…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
+      {activeTab === "pantry" ? (
+        <Pantry user={user} onShare={shareFromPantry} />
+      ) : (
+      <>
+        <div className="filters">
+          {["all", "offer", "request"].map((f) => (
+            <button key={f} className={filter === f ? "chip active" : "chip"} onClick={() => setFilter(f)}>
+              {f === "all" ? "All" : f === "offer" ? "Offers" : "Requests"}
+            </button>
+          ))}
+          <input
+            className="search"
+            placeholder="Search eggs, rice, Alder Hall…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
 
-      <main className="feed">
-        {!user && !isDemoMode ? (
-          <p className="empty">Sign in to see what your neighbors are sharing.</p>
-        ) : visible.length === 0 ? (
-          <p className="empty">Nothing here yet. Be the first to post!</p>
-        ) : (
-          visible.map((p) => <PostCard key={p.id} post={p} user={user} />)
-        )}
-      </main>
+        <main className="feed">
+          {!user && !isDemoMode ? (
+            <p className="empty">Sign in to see what your neighbors are sharing.</p>
+          ) : visible.length === 0 ? (
+            <p className="empty">Nothing here yet. Be the first to post!</p>
+          ) : (
+            visible.map((p) => <PostCard key={p.id} post={p} user={user} />)
+          )}
+        </main>
+      </>
+      )}
 
       <footer className="footer">
         Only share sealed or fresh food, list allergens in the notes, and meet in public spots.

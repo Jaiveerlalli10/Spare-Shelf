@@ -1,5 +1,6 @@
 // One post on the board, plus the buttons that make sense for whoever is looking at it.
 import { claimPost, completePost, deletePost } from "../data";
+import { daysUntil, expiryLabel } from "../dates";
 
 function timeAgo(ms) {
   const mins = Math.round((Date.now() - ms) / 60000);
@@ -7,12 +8,6 @@ function timeAgo(ms) {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
-}
-
-function daysUntil(dateStr) {
-  if (!dateStr) return null;
-  const today = new Date(new Date().toDateString());
-  return Math.round((new Date(dateStr + "T00:00") - today) / 86400000);
 }
 
 export default function PostCard({ post, user }) {
@@ -61,7 +56,7 @@ export default function PostCard({ post, user }) {
         📍 {post.location} · {post.ownerName}
         {days !== null && (
           <span className={days <= 1 ? "expiry soon" : "expiry"}>
-            {" "}· {days < 0 ? "past best-by" : days === 0 ? "best by today" : `best by ${days}d`}
+            {" "}· {expiryLabel(days)}
           </span>
         )}
       </p>

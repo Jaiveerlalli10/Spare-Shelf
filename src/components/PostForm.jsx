@@ -4,8 +4,9 @@ import { createPost } from "../data";
 
 const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn: "", estValue: "", notes: "" };
 
-export default function PostForm({ user, onDone }) {
-  const [form, setForm] = useState(EMPTY);
+// `initial` (optional) pre-fills the form, e.g. when sharing an item from the pantry.
+export default function PostForm({ user, onDone, initial }) {
+  const [form, setForm] = useState({ ...EMPTY, ...initial });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 

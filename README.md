@@ -34,6 +34,8 @@ Open the link it prints (usually http://localhost:5173). Without Firebase keys t
 | `src/App.jsx` | Main page: header, tabs, filters, feed. |
 | `src/components/PostForm.jsx` | The "new post" form. |
 | `src/components/PostCard.jsx` | One post, plus its buttons (claim, complete, delete). |
+| `src/components/Pantry.jsx` | Pantry tab: your private list of what's at home, with a "Share" button that creates an Offer. |
+| `src/dates.js` | Best-by date helpers. |
 | `src/components/ImpactBar.jsx` | Impact counter (items shared, $ saved, kg of food saved). |
 | `src/styles.css` | All styling. The colors are at the top. |
 

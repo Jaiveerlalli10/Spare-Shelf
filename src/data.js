@@ -98,6 +98,44 @@ export async function deletePost(post) {
   demo.removePost(post.id);
 }
 
+// ---------- Pantry (private to each user) ----------
+//
+// Stored in Firestore at users/{uid}/pantry/{itemId}. A pantry item looks like:
+// { id, name, quantity, expiresOn: "2026-10-20" | "", addedAt: number (milliseconds) }
+
+function pantryCollection(user) {
+  return collection(db, "users", user.uid, "pantry");
+}
+
+/** Calls callback(listOfItems) now and every time this user's pantry changes. */
+export function watchPantry(user, callback) {
+  if (!isDemoMode) {
+    return onSnapshot(
+      pantryCollection(user),
+      (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("Couldn't load pantry (check Firestore rules):", err)
+    );
+  }
+  callback(demo.getPantry());
+  return demo.on("pantry", () => callback(demo.getPantry()));
+}
+
+export async function addPantryItem(user, fields) {
+  const item = {
+    name: fields.name.trim(),
+    quantity: fields.quantity.trim(),
+    expiresOn: fields.expiresOn || "",
+    addedAt: Date.now(),
+  };
+  if (!isDemoMode) return addDoc(pantryCollection(user), item);
+  demo.addPantryItem(item);
+}
+
+export async function removePantryItem(user, item) {
+  if (!isDemoMode) return deleteDoc(doc(db, "users", user.uid, "pantry", item.id));
+  demo.removePantryItem(item.id);
+}
+
 // ---------- Demo mode (fake data saved in this browser) ----------
 
 const HOUR = 60 * 60 * 1000;
@@ -126,8 +164,18 @@ function seedPosts() {
   ];
 }
 
+function seedPantry() {
+  const now = Date.now();
+  return [
+    { id: "i1", name: "Tortillas", quantity: "8", expiresOn: daysFromNow(1), addedAt: now },
+    { id: "i2", name: "Greek yogurt", quantity: "2 cups", expiresOn: daysFromNow(3), addedAt: now },
+    { id: "i3", name: "Pasta", quantity: "1 box", expiresOn: "", addedAt: now },
+    { id: "i4", name: "Onions", quantity: "3", expiresOn: daysFromNow(10), addedAt: now },
+  ];
+}
+
 const demo = (() => {
-  const listeners = { user: new Set(), posts: new Set() };
+  const listeners = { user: new Set(), posts: new Set(), pantry: new Set() };
   const load = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   };
@@ -139,6 +187,8 @@ const demo = (() => {
 
   const emit = (kind) => listeners[kind].forEach((fn) => fn());
   const setPosts = (next) => { posts = next; save("spareShelf.posts", posts); emit("posts"); };
+  let pantry = load("spareShelf.pantry", null) || seedPantry();
+  const setPantry = (next) => { pantry = next; save("spareShelf.pantry", pantry); emit("pantry"); };
 
   return {
     on(kind, fn) { listeners[kind].add(fn); return () => listeners[kind].delete(fn); },
@@ -148,11 +198,17 @@ const demo = (() => {
     addPost(p) { setPosts([{ ...p, id: "p" + Date.now() }, ...posts]); },
     updatePost(id, changes) { setPosts(posts.map((p) => (p.id === id ? { ...p, ...changes } : p))); },
     removePost(id) { setPosts(posts.filter((p) => p.id !== id)); },
+    getPantry: () => [...pantry],
+    addPantryItem(item) { setPantry([...pantry, { ...item, id: "i" + Date.now() }]); },
+    removePantryItem(id) { setPantry(pantry.filter((i) => i.id !== id)); },
   };
 })();
 
 /** Demo-only helper: put the sample data back. */
 export function resetDemoData() {
-  try { localStorage.removeItem("spareShelf.posts"); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem("spareShelf.posts");
+    localStorage.removeItem("spareShelf.pantry");
+  } catch { /* ignore */ }
   window.location.reload();
 }
