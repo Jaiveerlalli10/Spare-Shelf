@@ -36,10 +36,8 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
   const [routeState, setRouteState] = useState("idle"); // idle | loading | ready
   const [showSteps, setShowSteps] = useState(false);
 
-  // Live device location: asked for the first time someone wants directions (or taps ◎).
-  const [wantLive, setWantLive] = useState(false);
-  useEffect(() => { if (target) setWantLive(true); }, [target?.id]);
-  const device = useDeviceLocation(wantLive);
+  // Live device location: the browser asks for permission as soon as the map loads.
+  const device = useDeviceLocation(true);
   const origin = device.pos
     ? { lat: device.pos.lat, lng: device.pos.lng, accuracy: device.pos.accuracy, live: true }
     : here ? { lat: here.lat, lng: here.lng, live: false } : null;
@@ -208,10 +206,11 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
 
       <div className="map-wrap">
         <div className="map-box" ref={boxRef} />
+        <LocationNotice device={device} />
         {(origin || navigator.geolocation) && (
           <button className="map-recenter" title="Center on you (uses your device location)" aria-label="Center the map on you"
             onClick={() => {
-              setWantLive(true);
+              if (!device.pos) device.retry();
               if (origin && mapRef.current) mapRef.current.setView([origin.lat, origin.lng], 16);
             }}>
             ◎
@@ -239,9 +238,7 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
               {routeFrom && routeFrom.live
                 ? <>📡 From your current location{device.pos && device.pos.accuracy > 0 && ` (±${Math.round(device.pos.accuracy)} m)`}</>
                 : <>🏠 From {homeLabel || "your profile address"}</>}
-              {device.status === "asking" && <span className="muted"> · Allow location access to start from where you are.</span>}
-              {device.status === "denied" && <span className="muted"> · Location is blocked for this site. Allow it in your browser settings for live directions.</span>}
-              {device.status === "unavailable" && !device.pos && <span className="muted"> · Couldn't get your device location.</span>}
+
             </p>
           )}
           {routeState === "loading" && <p className="muted">Finding a walking route…</p>}
@@ -286,5 +283,37 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
         </p>
       )}
     </aside>
+  );
+}
+
+/** Banner over the map explaining why live location isn't on yet, and how to fix it. */
+function LocationNotice({ device }) {
+  if (device.pos || device.status === "idle") return null;
+  let text;
+  let canRetry = true;
+  switch (device.status) {
+    case "asking":
+      text = "Allow location access (look for the prompt near the address bar) so directions start from where you are.";
+      canRetry = false;
+      break;
+    case "denied":
+      text = "Location is blocked for this site. Click the location or 🔒 icon in the address bar, choose Allow, then tap Try again.";
+      break;
+    case "insecure":
+      text = `Live location only works on https:// or localhost, and this page is ${window.location.origin}. Open it on the computer running the app (localhost) or on the deployed https site.`;
+      canRetry = false;
+      break;
+    case "unsupported":
+      text = "This browser can't share location. Directions start from your profile address.";
+      canRetry = false;
+      break;
+    default:
+      text = "Couldn't find your device. Make sure location services are on for your browser (on a Mac: System Settings → Privacy & Security → Location Services), then tap Try again.";
+  }
+  return (
+    <div className="map-notice" role="status">
+      <span>📍 {text}</span>
+      {canRetry && <button className="btn small primary" onClick={device.retry}>Try again</button>}
+    </div>
   );
 }

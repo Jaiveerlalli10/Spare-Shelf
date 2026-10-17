@@ -686,6 +686,13 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 /* Profile-address dot (no live location): solid, no pulse */
 .map-me:not(.live) span { animation: none; background: #6b6b73; }
 .map-from { margin: 8px 0 0; font-size: 0.86rem; }
+.map-notice {
+  position: absolute; z-index: 600; left: 10px; right: 56px; top: 10px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 12px; border-radius: 12px; font-size: 0.82rem; line-height: 1.35;
+  background: rgba(20, 20, 22, 0.92); border: 1px solid var(--border); box-shadow: var(--shadow);
+}
+.map-notice span { flex: 1; min-width: 180px; }
 @keyframes pulse {
   0% { box-shadow: 0 0 0 0 rgba(55, 151, 240, 0.6); }
   100% { box-shadow: 0 0 0 18px rgba(55, 151, 240, 0); }
