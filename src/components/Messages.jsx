@@ -1,45 +1,70 @@
-// The Messages tab: a list of your chats, or one open chat.
+// The Messages tab, Instagram-DM style: an inbox of chats, or one open chat.
 import { isUnread } from "../data";
+import { shortAgo } from "../dates";
+import { foodEmoji } from "../foodEmoji";
+import { usePeople } from "../usePeople";
+import Avatar from "./Avatar";
 import ChatView from "./ChatView";
 
-function otherName(chat, user) {
-  return chat.ownerId === user.uid ? chat.claimerName : chat.ownerName;
+/** The person on the other side of this chat. */
+export function otherPerson(chat, user) {
+  return chat.ownerId === user.uid
+    ? { id: chat.claimerId, name: chat.claimerName }
+    : { id: chat.ownerId, name: chat.ownerName };
 }
 
 export default function Messages({ user, chats, posts, openChatId, onOpen, onBack }) {
-  const open = chats.find((c) => c.id === openChatId);
+  const people = usePeople(chats.map((c) => otherPerson(c, user).id));
+
   if (openChatId) {
-    if (!open) return <p className="empty">Opening chat…</p>;
-    return <ChatView user={user} chat={open} post={posts.find((p) => p.id === open.postId)} onBack={onBack} />;
+    const chat = chats.find((c) => c.id === openChatId);
+    if (!chat) return <p className="empty">Opening chat…</p>;
+    const other = otherPerson(chat, user);
+    return (
+      <ChatView user={user} chat={chat} post={posts.find((p) => p.id === chat.postId)}
+        other={other} photoURL={people[other.id]?.photoURL} onBack={onBack} />
+    );
   }
 
   if (chats.length === 0) {
-    return <p className="empty">No messages yet. Claim a post on the board to start a chat.</p>;
+    return (
+      <div className="card dm-empty">
+        <span className="dm-empty-icon" aria-hidden>💬</span>
+        <h3>Your messages</h3>
+        <p className="muted">Claim a post on the board to start chatting with a neighbor.</p>
+      </div>
+    );
   }
 
   return (
-    <ul className="chat-list">
+    <div className="card dm-inbox">
       {chats.map((chat) => {
-        const post = posts.find((p) => p.id === chat.postId);
+        const other = otherPerson(chat, user);
         const unread = isUnread(chat, user);
+        const post = posts.find((p) => p.id === chat.postId);
+        const preview = chat.lastMessage
+          ? `${chat.lastSenderId === user.uid ? "You: " : ""}${chat.lastMessage}`
+          : "Say hi 👋";
         return (
-          <li key={chat.id}>
-            <button className={unread ? "card chat-row unread" : "card chat-row"} onClick={() => onOpen(chat.id)}>
-              <div className="chat-row-top">
-                <strong>{otherName(chat, user)}</strong>
-                <span className="muted">about {chat.item}</span>
-                {post && post.status === "completed" && <span className="status done">✓ Done</span>}
-                {unread && <span className="dot" aria-label="unread" />}
-              </div>
-              <span className="chat-preview">
-                {chat.lastMessage
-                  ? `${chat.lastSenderId === user.uid ? "You: " : ""}${chat.lastMessage}`
-                  : "No messages yet. Say hi!"}
+          <button key={chat.id} className={unread ? "dm-row unread" : "dm-row"} onClick={() => onOpen(chat.id)}>
+            <span className={unread ? "dm-avatar ring" : "dm-avatar"}>
+              <Avatar name={other.name} photoURL={people[other.id]?.photoURL} size={56} />
+              <span className="dm-badge" aria-hidden>{foodEmoji(chat.item)}</span>
+            </span>
+            <span className="dm-text">
+              <span className="dm-name">{other.name}</span>
+              <span className="dm-preview">
+                <span className="dm-snippet">{preview}</span>
+                {chat.lastAt > 0 && <span className="dm-time"> · {shortAgo(chat.lastAt)}</span>}
               </span>
-            </button>
-          </li>
+              <span className="dm-about">
+                about {chat.item}{post && post.status === "completed" && <span className="dm-done"> · ✓ Done</span>}
+              </span>
+            </span>
+            {unread && <span className="dm-dot" aria-label="Unread" />}
+          </button>
         );
       })}
-    </ul>
+    </div>
   );
 }

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { watchPantry, addPantryItem, removePantryItem, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import { activeOffersByPantryItem } from "../matching";
+import { foodEmoji } from "../foodEmoji";
 
 const EMPTY = { name: "", quantity: "", expiresOn: "" };
 const SOON_DAYS = 2; // "expiring soon" = within this many days
@@ -96,6 +97,7 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
               return (
                 <li key={item.id} className="card pantry-item offering">
                   <div>
+                    <span className="pantry-emoji" aria-hidden>{foodEmoji(item.name)}</span>
                     <strong>{item.name}</strong>
                     {item.quantity && <span className="qty"> · {item.quantity}</span>}
                     <div className="offer-status">
@@ -127,6 +129,7 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
               return (
                 <li key={item.id} className={soon ? "card pantry-item soon" : "card pantry-item"}>
                   <div>
+                    <span className="pantry-emoji" aria-hidden>{foodEmoji(item.name)}</span>
                     <strong>{item.name}</strong>
                     {item.quantity && <span className="qty"> · {item.quantity}</span>}
                     {days !== null && <div className={soon ? "expiry soon" : "expiry muted"}>{expiryLabel(days)}</div>}

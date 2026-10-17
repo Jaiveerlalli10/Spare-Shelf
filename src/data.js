@@ -120,6 +120,34 @@ export async function saveProfile(user, fields) {
   demo.setProfile(user.uid, profile);
 }
 
+// ---------- Public profiles (name + photo that other signed-in people can see) ----------
+//
+// The full profile (housing, bio...) stays private at users/{uid}. Only the name and
+// profile picture are copied to publicProfiles/{uid}, so chats can show photos.
+
+/** Calls callback({ name, photoURL } or null) for one person, now and whenever it changes. */
+export function watchPublicProfile(uid, callback) {
+  if (!isDemoMode) {
+    return onSnapshot(
+      doc(db, "publicProfiles", uid),
+      (snap) => callback(snap.exists() ? snap.data() : null),
+      (err) => {
+        console.error("Couldn't load a profile picture (check Firestore rules):", err);
+        callback(null);
+      }
+    );
+  }
+  callback(demo.getPublicProfile(uid));
+  return demo.on("profile", () => callback(demo.getPublicProfile(uid)));
+}
+
+/** Publishes this person's name and photo ("" = no photo). */
+export async function savePublicProfile(user, photoURL) {
+  const data = { name: user.name, photoURL: photoURL || "", updatedAt: Date.now() };
+  if (!isDemoMode) return setDoc(doc(db, "publicProfiles", user.uid), data);
+  demo.setPublicProfile(user.uid, data);
+}
+
 // ---------- Posts ----------
 
 /** Calls callback(listOfPosts) now and every time any post changes (newest first). */
@@ -316,14 +344,17 @@ export function watchChats(user, callback) {
   return demo.on("chats", send);
 }
 
-/** Calls callback(listOfMessages) for one chat, oldest first. */
-export function watchMessages(chatId, callback) {
+/** Calls callback(listOfMessages) for one chat, oldest first. Calls onError(err) if loading fails. */
+export function watchMessages(chatId, callback, onError) {
   if (!isDemoMode) {
     const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt"));
     return onSnapshot(
       q,
       (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      (err) => console.error("Couldn't load messages (check Firestore rules):", err)
+      (err) => {
+        console.error("Couldn't load messages (check Firestore rules):", err);
+        if (onError) onError(err);
+      }
     );
   }
   const send = () => callback(demo.getMessages(chatId));
@@ -422,6 +453,7 @@ const demo = (() => {
   let user = load("spareShelf.user", null);
   let posts = load("spareShelf.posts", null) || seedPosts();
   let profiles = load("spareShelf.profiles", {});
+  let publicProfiles = load("spareShelf.publicProfiles", {});
 
   const emit = (kind) => listeners[kind].forEach((fn) => fn());
   const setPosts = (next) => { posts = next; save("spareShelf.posts", posts); emit("posts"); };
@@ -449,6 +481,14 @@ const demo = (() => {
     getUser: () => user,
     setUser(u) { user = u; save("spareShelf.user", u); emit("user"); },
     getProfile: (uid) => profiles[uid] || null,
+    getPublicProfile: (uid) => publicProfiles[uid] || null,
+    setPublicProfile(uid, data) {
+      const old = publicProfiles[uid];
+      if (old && old.name === data.name && old.photoURL === data.photoURL) return;
+      publicProfiles = { ...publicProfiles, [uid]: data };
+      save("spareShelf.publicProfiles", publicProfiles);
+      emit("profile");
+    },
     setProfile(uid, profile) {
       profiles = { ...profiles, [uid]: profile };
       save("spareShelf.profiles", profiles);

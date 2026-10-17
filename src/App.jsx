@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useState } from "react";
-import { watchUser, watchPosts, watchProfile, watchChats, ensureChat, isUnread, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, watchChats, ensureChat, isUnread, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -98,6 +98,13 @@ export default function App() {
   const complete = profileState === "ready" && isProfileComplete(profile);
   const needsProfile = profileState === "ready" && !complete;
   const showApp = !user || complete;
+  // Share my name + photo so neighbors see my picture in Messages.
+  const myPhoto = complete ? (profile.photoURL || user.photoURL || "") : null;
+  useEffect(() => {
+    if (myPhoto === null) return;
+    savePublicProfile(user, myPhoto).catch((err) => console.error("Couldn't share profile picture:", err));
+  }, [uid, myPhoto]);
+
   // Where the viewer lives (from their profile), used for "0.3 mi away".
   const here = complete ? { lat: profile.housingLat, lng: profile.housingLng } : null;
 
@@ -129,11 +136,12 @@ export default function App() {
   }
 
   const TABS = [
-    { id: "board", label: "Board", icon: "🏠", title: "Board", sub: "What your neighbors are offering and asking for." },
-    { id: "mine", label: "My posts", icon: "📝", title: "My posts", sub: "Posts you made or claimed." },
-    { id: "pantry", label: "Pantry", icon: "🥫", title: "Pantry", sub: "What you have at home. Only you can see this." },
-    { id: "recipes", label: "Recipes", icon: "🍳", title: "Recipes", sub: "Cook with what you have. Borrow the rest." },
-    { id: "messages", label: "Messages", icon: "💬", title: "Messages", sub: "Plan pickups with your neighbors." },
+    // `tone` gives each section its own color (see the .tone-* classes in styles.css).
+    { id: "board", label: "Board", icon: "🏠", tone: "basil", title: "Board", sub: "What your neighbors are offering and asking for." },
+    { id: "mine", label: "My posts", icon: "📝", tone: "sky", title: "My posts", sub: "Posts you made or claimed." },
+    { id: "pantry", label: "Pantry", icon: "🥫", tone: "saffron", title: "Pantry", sub: "What you have at home. Only you can see this." },
+    { id: "recipes", label: "Recipes", icon: "🍳", tone: "tomato", title: "Recipes", sub: "Cook with what you have. Borrow the rest." },
+    { id: "messages", label: "Messages", icon: "💬", tone: "plum", title: "Messages", sub: "Plan pickups with your neighbors." },
   ];
   const page = TABS.find((t) => t.id === activeTab);
 
@@ -183,7 +191,7 @@ export default function App() {
         {showApp && (
           <nav className="nav" aria-label="Sections">
             {TABS.map((t) => (
-              <button key={t.id} className={activeTab === t.id ? "nav-item active" : "nav-item"}
+              <button key={t.id} className={`nav-item tone-${t.tone}${activeTab === t.id ? " active" : ""}`}
                 aria-current={activeTab === t.id ? "page" : undefined}
                 onClick={() => { setTab(t.id); if (t.id === "messages") setOpenChatId(null); }}
                 disabled={t.id !== "board" && !user}>
@@ -228,9 +236,12 @@ export default function App() {
         {showApp && <>
         {editing && <ProfileSetup user={user} profile={profile} onSaved={() => setEditing(false)} />}
 
-        <header className="page-head">
-          <h2>{page.title}</h2>
-          <p className="muted">{page.sub}</p>
+        <header className={`page-head tone-${page.tone}`}>
+          <span className="page-icon" aria-hidden>{page.icon}</span>
+          <div>
+            <h2>{page.title}</h2>
+            <p className="muted">{page.sub}</p>
+          </div>
         </header>
 
         {showForm && user && onPostsTab && (
@@ -272,7 +283,7 @@ export default function App() {
             ) : visible.length === 0 ? (
               <p className="empty">Nothing here yet. Be the first to post!</p>
             ) : (
-              visible.map((p) => <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} />)
+              visible.map((p, i) => <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} index={i} />)
             )}
           </main>
         </>

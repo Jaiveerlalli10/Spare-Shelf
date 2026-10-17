@@ -1,86 +1,131 @@
-// One conversation about one post, with the hand-off confirmation at the top.
+// One conversation, Instagram-DM style: header, hand-off strip, grouped bubbles, "Seen", composer.
 import { useEffect, useRef, useState } from "react";
 import { watchMessages, sendMessage, markChatRead, isUnread, handoffRoles } from "../data";
+import { chatStamp } from "../dates";
+import { foodEmoji } from "../foodEmoji";
+import Avatar from "./Avatar";
 import Handoff from "./Handoff";
 
-export default function ChatView({ user, chat, post, onBack }) {
-  const [messages, setMessages] = useState([]);
+const GAP = 15 * 60 * 1000; // messages more than 15 minutes apart get a timestamp and a new group
+const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
+
+export default function ChatView({ user, chat, post, other, photoURL, onBack }) {
+  const [messages, setMessages] = useState(null); // null = still loading
+  const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
   const [error, setError] = useState("");
-  const bottomRef = useRef(null);
+  const threadRef = useRef(null);
 
-  useEffect(() => watchMessages(chat.id, setMessages), [chat.id]);
+  useEffect(() => {
+    setMessages(null);
+    setLoadError("");
+    return watchMessages(chat.id, setMessages, (err) => setLoadError(err.code === "permission-denied"
+      ? "Firebase blocked reading these messages (permission denied). Publish the latest firestore.rules in the Firebase console."
+      : err.message));
+  }, [chat.id]);
+  const list = messages || [];
 
-  // Mark as read while the chat is open, and keep the newest message in view.
+  // Mark as read while open, and keep the newest message in view.
   useEffect(() => {
     if (isUnread(chat, user)) markChatRead(user, chat).catch(() => {});
-    if (bottomRef.current) bottomRef.current.scrollIntoView({ block: "nearest" });
-  }, [messages.length, chat.lastAt]);
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [list.length, chat.lastAt]);
 
-  const other = chat.ownerId === user.uid ? chat.claimerName : chat.ownerName;
-
-  async function send(e) {
-    e.preventDefault();
-    if (!text.trim()) return;
+  async function send(content) {
+    if (!content.trim()) return;
     setError("");
     try {
-      await sendMessage(user, chat, text);
+      await sendMessage(user, chat, content);
       setText("");
     } catch (err) {
       setError("Couldn't send: " + err.message);
     }
   }
 
-  let handoffInfo = null;
-  if (post) {
+  // "Seen" goes under my last message once the other person has read up to it.
+  let lastMine = -1;
+  list.forEach((m, i) => { if (m.senderId === user.uid) lastMine = i; });
+  const theirRead = (chat.lastRead || {})[other.id] || 0;
+  const seen = lastMine >= 0 && lastMine === list.length - 1 && theirRead >= list[lastMine].createdAt;
+
+  let strip = <div className="dm-strip">This post was deleted.</div>;
+  if (post && post.status === "open") {
+    strip = null; // not claimed (yet), so there's no hand-off to show
+  } else if (post) {
     const { giverName, receiverName } = handoffRoles(post);
-    handoffInfo = (
-      <div className={post.status === "completed" ? "card handoff done" : "card handoff"}>
-        {post.status === "completed" ? (
-          <p className="handoff-title">
-            🎉 Hand-off complete! {post.item} was added to {receiverName}'s pantry. Thanks for keeping food out of the trash.
-          </p>
-        ) : (
-          <p className="handoff-title">
-            {giverName} → {receiverName}: <strong>{post.item}</strong>{post.quantity && ` · ${post.quantity}`}
-            <span className="muted"> · 📍 {post.location}</span>
-          </p>
-        )}
-        {post.status !== "completed" && (
-          <>
-            <p className="muted">Pick a time and place to meet. After the hand-off, both of you confirm here.</p>
-            <div className="actions"><Handoff post={post} user={user} /></div>
-          </>
-        )}
+    strip = post.status === "completed" ? (
+      <div className="dm-strip done">🎉 Hand-off complete! {post.item} was added to {receiverName}'s pantry.</div>
+    ) : (
+      <div className="dm-strip">
+        <span>
+          <strong>{giverName}</strong> → <strong>{receiverName}</strong> · {post.item}{post.quantity && ` (${post.quantity})`}
+        </span>
+        <span className="dm-strip-actions"><Handoff post={post} user={user} /></span>
       </div>
     );
   }
 
   return (
-    <section className="chat">
-      <button className="link back" onClick={onBack}>← All messages</button>
-      <h2 className="chat-title">{other} <span className="muted">· about {chat.item}</span></h2>
+    <section className="card dm-chat">
+      <header className="dm-header">
+        <button className="dm-back" onClick={onBack} aria-label="Back to all messages">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </button>
+        <Avatar name={other.name} photoURL={photoURL} size={40} />
+        <div className="dm-header-text">
+          <strong>{other.name}</strong>
+          <span className="muted">{foodEmoji(chat.item)} about {chat.item}{post && ` · 📍 ${post.location}`}</span>
+        </div>
+      </header>
 
-      {handoffInfo || <p className="muted">This post was deleted.</p>}
+      {strip}
 
-      <div className="card messages">
-        {messages.length === 0 && <p className="muted">No messages yet. Say hi and suggest a pickup time.</p>}
-        {messages.map((m) => (
-          <div key={m.id} className={m.senderId === user.uid ? "bubble mine" : "bubble theirs"}>
-            {m.text}
-            <span className="bubble-time">
-              {new Date(m.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-            </span>
-          </div>
-        ))}
-        <div ref={bottomRef} />
+      <div className="dm-thread" ref={threadRef}>
+        {/* Profile intro at the top of the thread, like Instagram */}
+        <div className="dm-intro">
+          <Avatar name={other.name} photoURL={photoURL} size={88} />
+          <strong>{other.name}</strong>
+          <span className="muted">Spare Shelf neighbor · about {chat.item}</span>
+          <span className="muted">Say hi and pick a time and place to meet.</span>
+        </div>
+
+        {loadError && <p className="error dm-load">{loadError}</p>}
+        {!loadError && messages === null && <p className="muted dm-load">Loading messages…</p>}
+
+        {list.map((m, i) => {
+          const prev = list[i - 1];
+          const next = list[i + 1];
+          const mine = m.senderId === user.uid;
+          const newTime = !prev || m.createdAt - prev.createdAt > GAP;
+          const first = newTime || prev.senderId !== m.senderId;
+          const last = !next || next.senderId !== m.senderId || next.createdAt - m.createdAt > GAP;
+          const emojiOnly = EMOJI_ONLY.test(m.text);
+          const cls = ["dm-msg", mine ? "mine" : "theirs", first && "first", last && "last"].filter(Boolean).join(" ");
+          return (
+            <div key={m.id}>
+              {newTime && <div className="dm-stamp">{chatStamp(m.createdAt)}</div>}
+              <div className={cls}>
+                {!mine && (last
+                  ? <Avatar name={other.name} photoURL={photoURL} size={28} />
+                  : <span className="dm-avatar-space" />)}
+                <div className={emojiOnly ? "dm-bubble emoji" : "dm-bubble"} title={chatStamp(m.createdAt)}>{m.text}</div>
+              </div>
+              {seen && i === lastMine && <div className="dm-seen">Seen</div>}
+            </div>
+          );
+        })}
       </div>
 
-      <form className="chat-input" onSubmit={send}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message ${other}…`} />
-        <button className="btn primary" disabled={!text.trim()}>Send</button>
+      <form className="dm-composer" onSubmit={(e) => { e.preventDefault(); send(text); }}>
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Message…" aria-label={`Message ${other.name}`} />
+        {text.trim() ? (
+          <button className="dm-send" type="submit">Send</button>
+        ) : (
+          <button className="dm-heart" type="button" onClick={() => send("❤️")} aria-label="Send a heart">❤️</button>
+        )}
       </form>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error dm-error">{error}</p>}
     </section>
   );
 }

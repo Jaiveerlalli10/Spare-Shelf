@@ -52,6 +52,16 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Name + profile picture, readable by anyone signed in (used for chat photos).
+    match /publicProfiles/{userId} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(["name", "photoURL", "updatedAt"])
+        && request.resource.data.name is string
+        && request.resource.data.photoURL is string
+        && request.resource.data.photoURL.size() < 200000;
+    }
+
     // Each person's pantry is private: only they can read or change it.
     match /users/{userId}/pantry/{itemId} {
       allow read, write: if signedIn() && request.auth.uid == userId;

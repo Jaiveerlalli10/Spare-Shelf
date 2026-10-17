@@ -3,6 +3,7 @@ import { claimPost, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
 import { milesToPost, awayLabel } from "../location";
+import { foodEmoji } from "../foodEmoji";
 
 function timeAgo(ms) {
   const mins = Math.round((Date.now() - ms) / 60000);
@@ -16,7 +17,8 @@ const firstName = (name) => (name || "").split(" ")[0];
 
 // `onMessage(post)` opens the chat for a claimed post.
 // `here` is the viewer's housing location, used to show "0.3 mi away".
-export default function PostCard({ post, user, here, onMessage }) {
+// `index` staggers the entrance animation.
+export default function PostCard({ post, user, here, onMessage, index = 0 }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
@@ -59,7 +61,9 @@ export default function PostCard({ post, user, here, onMessage }) {
   }
 
   return (
-    <article className={`card post ${post.type}`}>
+    <article className={`card post ${post.type}`} style={{ "--i": Math.min(index, 8) }}>
+      <div className="post-emoji" aria-hidden>{foodEmoji(post.item)}</div>
+      <div className="post-body">
       {/* Reads as a sentence: "Lucas is requesting Sugar · 1 cup" */}
       <h2 className="post-headline">
         <span className="who">{isMine ? "You're" : `${post.ownerName} is`}</span>{" "}
@@ -77,6 +81,7 @@ export default function PostCard({ post, user, here, onMessage }) {
       </p>
       {post.notes && <p className="notes">{post.notes}</p>}
       <div className="actions">{actions}</div>
+      </div>
     </article>
   );
 }

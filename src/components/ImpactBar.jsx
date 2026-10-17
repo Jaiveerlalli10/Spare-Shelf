@@ -8,16 +8,17 @@ export default function ImpactBar({ posts }) {
   const neighbors = new Set(done.flatMap((p) => [p.ownerId, p.claimedById]).filter(Boolean)).size;
 
   const stats = [
-    { value: done.length, label: "items shared" },
-    { value: `$${saved.toFixed(0)}`, label: "saved" },
-    { value: `${(done.length * KG_PER_ITEM).toFixed(1)} kg`, label: "food not wasted" },
-    { value: neighbors, label: "neighbors helped" },
+    { value: done.length, label: "items shared", icon: "🍽️", tone: "basil" },
+    { value: `$${saved.toFixed(0)}`, label: "saved", icon: "💸", tone: "saffron" },
+    { value: `${(done.length * KG_PER_ITEM).toFixed(1)} kg`, label: "food not wasted", icon: "🌱", tone: "sky" },
+    { value: neighbors, label: "neighbors helped", icon: "🤝", tone: "berry" },
   ];
 
   return (
     <section className="impact" aria-label="Community impact">
       {stats.map((s) => (
-        <div key={s.label} className="stat">
+        <div key={s.label} className={`stat ${s.tone}`}>
+          <span className="stat-icon" aria-hidden>{s.icon}</span>
           <strong>{s.value}</strong>
           <span>{s.label}</span>
         </div>
