@@ -9,13 +9,13 @@
 //   ownerId, ownerName, ownerEmail,
 //   status: "open" | "claimed" | "completed",
 //   claimedById, claimedByName, claimedByEmail,
+//   pantryItemId: for offers, the exact pantry entry being given away ("" if none),
 //   createdAt: number (milliseconds)
 // }
 
 import { firebaseReady, auth, db } from "./firebase";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
-import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
-import { nameMatches } from "./matching";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 
 export const isDemoMode = !firebaseReady;
 
@@ -59,7 +59,18 @@ export function watchPosts(callback) {
   return demo.on("posts", () => callback(demo.getPosts()));
 }
 
+// For an offer, `fields.pantryItemId` says which pantry entry is being given away.
+// If it's empty, a new pantry entry is created for the offer (offering it means you have it).
 export async function createPost(user, fields) {
+  let pantryItemId = "";
+  if (fields.type === "offer") {
+    try {
+      pantryItemId = fields.pantryItemId ||
+        (await addPantryItem(user, { name: fields.item, quantity: fields.quantity, expiresOn: fields.expiresOn }));
+    } catch (err) {
+      console.error("Couldn't add it to your pantry, posting anyway:", err);
+    }
+  }
   const post = {
     type: fields.type,
     item: fields.item.trim(),
@@ -75,19 +86,11 @@ export async function createPost(user, fields) {
     claimedById: "",
     claimedByName: "",
     claimedByEmail: "",
+    pantryItemId,
     createdAt: Date.now(),
   };
-  if (!isDemoMode) await addDoc(collection(db, "posts"), post);
-  else demo.addPost(post);
-
-  // Offering something means you have it, so make sure it's in your pantry too.
-  if (post.type === "offer") {
-    try {
-      await addToPantryIfMissing(user, { name: post.item, quantity: post.quantity, expiresOn: post.expiresOn });
-    } catch (err) {
-      console.error("Posted, but couldn't add it to your pantry:", err); // the post itself still worked
-    }
-  }
+  if (!isDemoMode) return addDoc(collection(db, "posts"), post);
+  demo.addPost(post);
 }
 
 /** Someone says "I can help" (on a request) or "I'll take it" (on an offer). */
@@ -97,10 +100,21 @@ export async function claimPost(user, post) {
   demo.updatePost(post.id, changes);
 }
 
-/** The owner confirms the hand-off happened. This is what counts toward the impact stats. */
+/**
+ * The owner confirms the hand-off happened. This is what counts toward the impact stats.
+ * For an offer, the linked pantry entry is removed, because it's been given away.
+ */
 export async function completePost(post) {
-  if (!isDemoMode) return updateDoc(doc(db, "posts", post.id), { status: "completed" });
-  demo.updatePost(post.id, { status: "completed" });
+  if (!isDemoMode) await updateDoc(doc(db, "posts", post.id), { status: "completed" });
+  else demo.updatePost(post.id, { status: "completed" });
+
+  if (post.type === "offer" && post.pantryItemId) {
+    try {
+      await removePantryItem({ uid: post.ownerId }, { id: post.pantryItemId });
+    } catch (err) {
+      console.error("Completed, but couldn't remove it from your pantry:", err);
+    }
+  }
 }
 
 export async function deletePost(post) {
@@ -137,17 +151,8 @@ export async function addPantryItem(user, fields) {
     expiresOn: fields.expiresOn || "",
     addedAt: Date.now(),
   };
-  if (!isDemoMode) return addDoc(pantryCollection(user), item);
-  demo.addPantryItem(item);
-}
-
-/** Adds the item unless the pantry already has something with a matching name (e.g. "Eggs" vs "eggs"). */
-export async function addToPantryIfMissing(user, fields) {
-  const pantry = isDemoMode
-    ? demo.getPantry()
-    : (await getDocs(pantryCollection(user))).docs.map((d) => d.data());
-  const alreadyHave = pantry.some((i) => nameMatches(fields.name, i.name) || nameMatches(i.name, fields.name));
-  if (!alreadyHave) await addPantryItem(user, fields);
+  if (!isDemoMode) return (await addDoc(pantryCollection(user), item)).id;
+  return demo.addPantryItem(item);
 }
 
 export async function removePantryItem(user, item) {
@@ -224,7 +229,11 @@ const demo = (() => {
     updatePost(id, changes) { setPosts(posts.map((p) => (p.id === id ? { ...p, ...changes } : p))); },
     removePost(id) { setPosts(posts.filter((p) => p.id !== id)); },
     getPantry: () => [...pantry],
-    addPantryItem(item) { setPantry([...pantry, { ...item, id: "i" + Date.now() }]); },
+    addPantryItem(item) {
+      const id = "i" + Date.now();
+      setPantry([...pantry, { ...item, id }]);
+      return id;
+    },
     removePantryItem(id) { setPantry(pantry.filter((i) => i.id !== id)); },
   };
 })();

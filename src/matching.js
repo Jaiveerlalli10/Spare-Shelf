@@ -39,3 +39,17 @@ export function findOffers(ingredientName, posts, user) {
       nameMatches(ingredientName, p.item)
   );
 }
+
+/**
+ * The user's offers that are still active (open or claimed), keyed by the pantry entry they came from.
+ * Used to highlight pantry items that are on the board, and to keep recipes from counting them.
+ */
+export function activeOffersByPantryItem(posts, user) {
+  const map = new Map();
+  for (const p of posts) {
+    if (p.type === "offer" && p.ownerId === user.uid && p.pantryItemId && p.status !== "completed") {
+      map.set(p.pantryItemId, p);
+    }
+  }
+  return map;
+}

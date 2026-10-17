@@ -51,7 +51,7 @@ export default function App() {
 
   // Pantry "Share" button -> Offer post.
   function shareFromPantry(item) {
-    startPost({ type: "offer", item: item.name, quantity: item.quantity, expiresOn: item.expiresOn });
+    startPost({ type: "offer", pantryItemId: item.id, item: item.name, quantity: item.quantity, expiresOn: item.expiresOn });
   }
 
   // Recipe "Request it" button -> Request post for a missing ingredient.
@@ -117,11 +117,11 @@ export default function App() {
       </div>
 
       {showForm && user && onPostsTab && (
-        <PostForm key={draft ? draft.key : "new"} user={user} initial={draft} onDone={closeForm} />
+        <PostForm key={draft ? draft.key : "new"} user={user} posts={posts} initial={draft} onDone={closeForm} />
       )}
 
       {activeTab === "pantry" ? (
-        <Pantry user={user} onShare={shareFromPantry} />
+        <Pantry user={user} posts={posts} onShare={shareFromPantry} />
       ) : activeTab === "recipes" ? (
         <Recipes user={user} posts={posts} onRequest={requestIngredient} />
       ) : (

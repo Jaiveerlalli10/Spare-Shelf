@@ -112,7 +112,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .status.claimed { color: var(--request); }
 
 .form label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 10px; flex: 1; }
-.form input, .form textarea {
+.form input, .form textarea, .form select {
   display: block; width: 100%; margin-top: 4px; padding: 8px 10px;
   border-radius: 8px; border: 1px solid var(--border); background: var(--bg);
 }
@@ -181,4 +181,6 @@ button, input, textarea { font: inherit; color: inherit; }
 .btn.small { padding: 4px 10px; font-size: 0.85rem; }
 .steps { margin: 0; padding-left: 20px; }
 .steps li { margin-bottom: 6px; }
-.form-hint { margin: -4px 0 10px; }
+.pantry-heading { font-size: 0.95rem; margin: 14px 0 8px; }
+.pantry-item.offering { border-left: 4px solid var(--offer); background: var(--offer-bg); }
+.offer-status { font-size: 0.85rem; color: var(--offer); font-weight: 600; }

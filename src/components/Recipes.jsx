@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { watchPantry } from "../data";
 import { RECIPES, ALL_TAGS } from "../recipes";
-import { findInPantry } from "../matching";
+import { findInPantry, activeOffersByPantryItem } from "../matching";
 import RecipeDetail from "./RecipeDetail";
 
 export default function Recipes({ user, posts, onRequest }) {
@@ -14,10 +14,14 @@ export default function Recipes({ user, posts, onRequest }) {
 
   useEffect(() => watchPantry(user, setPantry), [user.uid]);
 
+  // Items you're giving away on the board don't count as "you have".
+  const onBoard = activeOffersByPantryItem(posts, user);
+  const available = pantry.filter((i) => !onBoard.has(i.id));
+
   const opened = RECIPES.find((r) => r.id === openId);
   if (opened) {
     return (
-      <RecipeDetail recipe={opened} pantry={pantry} posts={posts} user={user}
+      <RecipeDetail recipe={opened} pantry={available} posts={posts} user={user}
         onBack={() => setOpenId(null)} onRequest={onRequest} />
     );
   }
@@ -31,7 +35,7 @@ export default function Recipes({ user, posts, onRequest }) {
   const list = RECIPES
     .filter((r) => selectedTags.every((t) => r.tags.includes(t)))
     .filter((r) => !term || `${r.name} ${r.ingredients.map((i) => i.name).join(" ")}`.toLowerCase().includes(term))
-    .map((r) => ({ ...r, have: r.ingredients.filter((i) => findInPantry(i.name, pantry)).length }))
+    .map((r) => ({ ...r, have: r.ingredients.filter((i) => findInPantry(i.name, available)).length }))
     // Recipes you're closest to making come first.
     .sort((a, b) => (a.ingredients.length - a.have) - (b.ingredients.length - b.have));
 
@@ -71,7 +75,7 @@ export default function Recipes({ user, posts, onRequest }) {
           ))}
         </div>
       )}
-      <p className="muted pantry-note">Ingredient matches come from your Pantry tab.</p>
+      <p className="muted pantry-note">Ingredient matches come from your Pantry tab (not counting items you're offering).</p>
     </section>
   );
 }
