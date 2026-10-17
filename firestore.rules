@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /posts/{postId} {
+      // Anyone signed in can read the board.
+      allow read: if request.auth != null;
+      // You can only create posts as yourself.
+      allow create: if request.auth != null
+                    && request.resource.data.ownerId == request.auth.uid;
+      // The owner can edit/delete; anyone signed in can claim an open post.
+      allow update: if request.auth != null && (
+                      resource.data.ownerId == request.auth.uid ||
+                      (resource.data.status == "open" &&
+                       request.resource.data.claimedById == request.auth.uid &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(["status", "claimedById", "claimedByName", "claimedByEmail"]))
+                    );
+      allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}
