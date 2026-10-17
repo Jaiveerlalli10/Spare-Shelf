@@ -13,8 +13,10 @@
 // }
 
 import { firebaseReady, auth, db } from "./firebase";
+import { milesBetween } from "./location";
+import { NEAR_CAMPUS_MILES } from "./housing";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
 
 export const isDemoMode = !firebaseReady;
 
@@ -22,7 +24,12 @@ export const isDemoMode = !firebaseReady;
 
 function toUser(fbUser) {
   if (!fbUser) return null;
-  return { uid: fbUser.uid, name: fbUser.displayName || "Neighbor", email: fbUser.email || "" };
+  return {
+    uid: fbUser.uid,
+    name: fbUser.displayName || "Neighbor",
+    email: fbUser.email || "",
+    photoURL: fbUser.photoURL || "",
+  };
 }
 
 /** Calls callback(user or null) now and whenever sign-in state changes. Returns an unsubscribe function. */
@@ -40,6 +47,70 @@ export async function signIn() {
 export async function signOut() {
   if (!isDemoMode) return fbSignOut(auth);
   demo.setUser(null);
+}
+
+// ---------- Profile (required after sign-in) ----------
+//
+// Stored on users/{uid}. A finished profile has a campus and a dorm, apartment,
+// or address whose coordinates are near that campus.
+
+export function isProfileComplete(profile) {
+  return Boolean(
+    profile
+    && profile.universityName
+    && profile.housingLabel
+    && Number.isFinite(profile.housingLat)
+    && Number.isFinite(profile.housingLng)
+  );
+}
+
+/** Calls callback(profile or null) now and whenever this person's profile changes. */
+export function watchProfile(user, callback) {
+  if (!user) {
+    callback(null);
+    return () => {};
+  }
+  if (!isDemoMode) {
+    return onSnapshot(
+      doc(db, "users", user.uid),
+      (snap) => callback(snap.exists() ? snap.data() : null),
+      (err) => {
+        console.error("Couldn't load profile (check Firestore rules):", err);
+        callback(null);
+      }
+    );
+  }
+  callback(demo.getProfile(user.uid));
+  return demo.on("profile", () => callback(demo.getProfile(user.uid)));
+}
+
+export async function saveProfile(user, fields) {
+  const profile = {
+    name: user.name,
+    email: user.email || "",
+    photoURL: fields.photoURL || "",
+    bio: (fields.bio || "").trim(),
+    universityName: fields.university.name,
+    universityCity: fields.university.city,
+    universityState: fields.university.state,
+    universityLat: fields.university.lat,
+    universityLng: fields.university.lng,
+    housingKind: fields.housing.kind,
+    housingLabel: fields.housing.label.trim(),
+    housingLat: fields.housing.lat,
+    housingLng: fields.housing.lng,
+    createdAt: fields.createdAt || Date.now(),
+    updatedAt: Date.now(),
+  };
+  const miles = milesBetween(
+    { lat: profile.universityLat, lng: profile.universityLng },
+    { lat: profile.housingLat, lng: profile.housingLng }
+  );
+  if (miles > NEAR_CAMPUS_MILES) {
+    throw new Error(`That place is about ${miles.toFixed(1)} miles from campus. Choose somewhere within ${NEAR_CAMPUS_MILES} miles.`);
+  }
+  if (!isDemoMode) return setDoc(doc(db, "users", user.uid), profile, { merge: true });
+  demo.setProfile(user.uid, profile);
 }
 
 // ---------- Posts ----------
@@ -175,7 +246,7 @@ function seedPantry() {
 }
 
 const demo = (() => {
-  const listeners = { user: new Set(), posts: new Set(), pantry: new Set() };
+  const listeners = { user: new Set(), posts: new Set(), pantry: new Set(), profile: new Set() };
   const load = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   };
@@ -184,6 +255,7 @@ const demo = (() => {
   };
   let user = load("spareShelf.user", null);
   let posts = load("spareShelf.posts", null) || seedPosts();
+  let profiles = load("spareShelf.profiles", {});
 
   const emit = (kind) => listeners[kind].forEach((fn) => fn());
   const setPosts = (next) => { posts = next; save("spareShelf.posts", posts); emit("posts"); };
@@ -194,6 +266,12 @@ const demo = (() => {
     on(kind, fn) { listeners[kind].add(fn); return () => listeners[kind].delete(fn); },
     getUser: () => user,
     setUser(u) { user = u; save("spareShelf.user", u); emit("user"); },
+    getProfile: (uid) => profiles[uid] || null,
+    setProfile(uid, profile) {
+      profiles = { ...profiles, [uid]: profile };
+      save("spareShelf.profiles", profiles);
+      emit("profile");
+    },
     getPosts: () => [...posts].sort((a, b) => b.createdAt - a.createdAt),
     addPost(p) { setPosts([{ ...p, id: "p" + Date.now() }, ...posts]); },
     updatePost(id, changes) { setPosts(posts.map((p) => (p.id === id ? { ...p, ...changes } : p))); },

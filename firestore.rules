@@ -17,6 +17,25 @@ service cloud.firestore {
                     );
       allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
     }
+    // Profile is private. Housing coordinates have to sit near the campus point.
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.universityName is string
+        && request.resource.data.housingLabel is string
+        && request.resource.data.universityLat is number
+        && request.resource.data.universityLng is number
+        && request.resource.data.housingLat is number
+        && request.resource.data.housingLng is number
+        && request.resource.data.housingLat >= request.resource.data.universityLat - 0.25
+        && request.resource.data.housingLat <= request.resource.data.universityLat + 0.25
+        && request.resource.data.housingLng >= request.resource.data.universityLng - 0.6
+        && request.resource.data.housingLng <= request.resource.data.universityLng + 0.6
+        && request.resource.data.photoURL.size() < 200000
+        && request.resource.data.bio.size() < 500;
+      allow delete: if false;
+    }
     // Each person's pantry is private: only they can read or change it.
     match /users/{userId}/pantry/{itemId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;

@@ -1,11 +1,13 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useState } from "react";
-import { watchUser, watchPosts, signIn, signOut, isDemoMode, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
 import Pantry from "./components/Pantry";
+import ProfileSetup from "./components/ProfileSetup";
+import Avatar from "./components/Avatar";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -15,11 +17,27 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState(null); // pre-filled post when sharing from the pantry
+  const [profile, setProfile] = useState(null);
+  const [profileState, setProfileState] = useState("idle"); // "idle" | "loading" | "ready"
+  const [editing, setEditing] = useState(false);
+  const uid = user ? user.uid : null;
 
   // Start listening to sign-in state and posts when the page loads.
   useEffect(() => watchUser(setUser), []);
+  useEffect(() => {
+    if (!user) {
+      setProfile(null);
+      setProfileState("idle");
+      setEditing(false);
+      return;
+    }
+    setProfileState("loading");
+    return watchProfile(user, (next) => {
+      setProfile(next);
+      setProfileState("ready");
+    });
+  }, [uid]);
   // The live database only lets signed-in users read, so (re)start listening whenever the user changes.
-  const uid = user ? user.uid : null;
   useEffect(() => {
     if (!uid && !isDemoMode) {
       setPosts([]);
@@ -48,6 +66,10 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  const complete = profileState === "ready" && isProfileComplete(profile);
+  const needsProfile = profileState === "ready" && !complete;
+  const showApp = !user || complete;
+
   const term = search.trim().toLowerCase();
   const visible = posts.filter((p) => {
     if (activeTab === "board" && p.status === "completed") return false;
@@ -69,7 +91,14 @@ export default function App() {
         </div>
         {user ? (
           <div className="user">
-            <span>Hi, {user.name.split(" ")[0]}</span>
+            {complete && <Avatar name={user.name} photoURL={profile.photoURL || user.photoURL} />}
+            <div className="user-meta">
+              <span>Hi, {user.name.split(" ")[0]}</span>
+              {complete && <span className="muted" title={profile.universityName}>{profile.housingLabel}</span>}
+            </div>
+            {complete && (
+              <button className="btn ghost" onClick={() => setEditing((open) => !open)}>{editing ? "Close" : "Profile"}</button>
+            )}
             <button className="btn ghost" onClick={signOut}>Sign out</button>
           </div>
         ) : (
@@ -83,6 +112,12 @@ export default function App() {
           <button className="link" onClick={resetDemoData}>Reset sample data</button>
         </div>
       )}
+
+      {user && profileState !== "ready" && <p className="empty">Loading your profile…</p>}
+      {needsProfile && <ProfileSetup user={user} profile={profile} required onSaved={() => setEditing(false)} />}
+
+      {showApp && <>
+      {editing && <ProfileSetup user={user} profile={profile} onSaved={() => setEditing(false)} />}
 
       <ImpactBar posts={posts} />
 
@@ -135,6 +170,7 @@ export default function App() {
         </main>
       </>
       )}
+      </>}
 
       <footer className="footer">
         Only share sealed or fresh food, list allergens in the notes, and meet in public spots.
