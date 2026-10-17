@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
-import { useEffect, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, watchChats, ensureChat, isUnread, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { useEffect, useRef, useState } from "react";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -11,7 +11,8 @@ import Avatar from "./components/Avatar";
 import Recipes from "./components/Recipes";
 import Messages from "./components/Messages";
 import ReviewSheet from "./components/ReviewSheet";
-import { milesToPost } from "./location";
+import { milesToPost, publicPlaceLabel } from "./location";
+import MapPanel from "./components/MapPanel";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -26,7 +27,8 @@ export default function App() {
   const [profileState, setProfileState] = useState("idle"); // "idle" | "loading" | "ready"
   const [editing, setEditing] = useState(false);
   const [chats, setChats] = useState([]);
-  const [openChatId, setOpenChatId] = useState(null);
+  const [openChatWith, setOpenChatWith] = useState(null); // uid of the person whose chat is open
+  const [mapTargetId, setMapTargetId] = useState(null); // post shown with directions on the map
   const [reviewPost, setReviewPost] = useState(null);
   const uid = user ? user.uid : null;
 
@@ -59,18 +61,19 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setChats([]);
-      setOpenChatId(null);
+      setOpenChatWith(null);
       return;
     }
     return watchChats(user, setChats);
   }, [uid]);
-  const unreadCount = user ? chats.filter((c) => isUnread(c, user)).length : 0;
+  // Number of PEOPLE with unread messages (older per-post chats with the same person count once).
+  const unreadCount = user ? new Set(chats.filter((c) => isUnread(c, user)).map((c) => chatOther(c, user).id)).size : 0;
 
   // "Message" buttons: make sure the chat exists, then open it on the Messages tab.
   async function openChat(post) {
     try {
       await ensureChat(post);
-      setOpenChatId(post.id);
+      setOpenChatWith(post.ownerId === user.uid ? post.claimedById : post.ownerId);
       setTab("messages");
       window.scrollTo({ top: 0 });
     } catch (err) {
@@ -111,6 +114,27 @@ export default function App() {
   // Where the viewer lives (from their profile), used for "0.3 mi away".
   const here = complete ? { lat: profile.housingLat, lng: profile.housingLng } : null;
 
+  // Posts made before distances existed have no location, so they can't go on the map.
+  // When their owner opens the app, fill it in from the owner's profile (rounded to ~200 m).
+  const locationFixesTried = useRef(new Set());
+  useEffect(() => {
+    if (!here) return;
+    for (const p of posts) {
+      const needsSpot = p.ownerId === uid && p.status !== "completed" && !Number.isFinite(p.approxLat);
+      if (needsSpot && !locationFixesTried.current.has(p.id)) {
+        locationFixesTried.current.add(p.id);
+        addLocationToPost(p, here).catch((err) => console.error("Couldn't add a location to an old post:", err));
+      }
+      // Same for requests I agreed to help with before claims saved a location (so the requester can find me).
+      const needsClaimerSpot = p.claimedById === uid && p.status === "claimed" && !Number.isFinite(p.claimerApproxLat);
+      const key = "claim:" + p.id;
+      if (needsClaimerSpot && !locationFixesTried.current.has(key)) {
+        locationFixesTried.current.add(key);
+        addClaimerLocation(p, here).catch((err) => console.error("Couldn't add a claimer location:", err));
+      }
+    }
+  }, [uid, here?.lat, here?.lng, posts]);
+
   // Pantry "Share" button -> Offer post.
   function shareFromPantry(item) {
     startPost({ type: "offer", pantryItemId: item.id, item: item.name, quantity: item.quantity, expiresOn: item.expiresOn });
@@ -138,6 +162,18 @@ export default function App() {
     visible.sort((a, b) => away(a) - away(b));
   }
 
+  const mapTarget = posts.find((p) => p.id === mapTargetId) || null;
+
+  // "🧭 Directions" buttons: select the post on the map. On narrow screens the map sits
+  // above the page content, so scroll up to it.
+  function showDirections(post) {
+    setMapTargetId(post.id);
+    if (window.innerWidth <= 1200) {
+      const el = document.getElementById("map-panel");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
   const TABS = [
     // `tone` gives each section its own color (see the .tone-* classes in styles.css).
     { id: "board", label: "Board", icon: "🏠", tone: "basil", title: "Board", sub: "What your neighbors are offering and asking for." },
@@ -155,7 +191,7 @@ export default function App() {
   }
 
   return (
-    <div className="layout">
+    <div className={showApp ? "layout with-map" : "layout"}>
       {/* ---------- Left column: brand, you, navigation, impact ---------- */}
       <aside className="sidebar">
         <div className="brand">
@@ -196,7 +232,7 @@ export default function App() {
             {TABS.map((t) => (
               <button key={t.id} className={`nav-item tone-${t.tone}${activeTab === t.id ? " active" : ""}`}
                 aria-current={activeTab === t.id ? "page" : undefined}
-                onClick={() => { setTab(t.id); if (t.id === "messages") setOpenChatId(null); }}
+                onClick={() => { setTab(t.id); if (t.id === "messages") setOpenChatWith(null); }}
                 disabled={t.id !== "board" && !user}>
                 <span className="nav-icon" aria-hidden>{t.icon}</span>
                 <span className="nav-label">{t.label}</span>
@@ -248,7 +284,8 @@ export default function App() {
         </header>
 
         {showForm && user && onPostsTab && (
-          <PostForm key={draft ? draft.key : "new"} user={user} posts={posts} origin={here} initial={draft} onDone={closeForm} />
+          <PostForm key={draft ? draft.key : "new"} user={user} posts={posts} origin={here}
+            homeLabel={complete ? publicPlaceLabel(profile) : ""} initial={draft} onDone={closeForm} />
         )}
 
         {activeTab === "pantry" ? (
@@ -256,8 +293,8 @@ export default function App() {
         ) : activeTab === "recipes" ? (
           <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} />
         ) : activeTab === "messages" ? (
-          <Messages user={user} chats={chats} posts={posts} openChatId={openChatId}
-            onOpen={setOpenChatId} onBack={() => setOpenChatId(null)} onReview={setReviewPost} />
+          <Messages user={user} chats={chats} posts={posts} openWith={openChatWith}
+            onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} onDirections={showDirections} onReview={setReviewPost} />
         ) : (
         <>
           <div className="filters">
@@ -286,13 +323,21 @@ export default function App() {
             ) : visible.length === 0 ? (
               <p className="empty">Nothing here yet. Be the first to post!</p>
             ) : (
-              visible.map((p, i) => <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onReview={setReviewPost} index={i} />)
+              visible.map((p, i) => (
+                <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onReview={setReviewPost} onDirections={showDirections} index={i} />
+              ))
             )}
           </main>
         </>
         )}
       </>}
       </div>
+
+      {/* ---------- Right column: map + directions ---------- */}
+      {showApp && (
+        <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} posts={posts} user={user} target={mapTarget}
+          onSelect={(post) => setMapTargetId(post.id)} onClear={() => setMapTargetId(null)} />
+      )}
 
       {user && reviewPost && (
         <ReviewSheet key={reviewPost.id} user={user} post={reviewPost} onClose={() => setReviewPost(null)} onSaved={() => setReviewPost(null)} />

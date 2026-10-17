@@ -1,47 +1,72 @@
-// One conversation, Instagram-DM style: header, hand-off strip, grouped bubbles, "Seen", composer.
+// One conversation with one neighbor, Instagram-DM style: header, a hand-off strip per item
+// you're trading, grouped bubbles, "Seen", composer.
+//
+// `chats` is every chat doc with this person: the shared pair chat plus any older per-post chats.
+// Their messages are merged into one thread; new messages always go to the pair chat.
+// `posts` is the claimed posts between you two (from postsBetween in Messages.jsx).
 import { useEffect, useRef, useState } from "react";
-import { watchMessages, sendMessage, markChatRead, isUnread, handoffRoles, isFirestoreStuck } from "../data";
+import {
+  watchMessages, sendMessage, markChatRead, isUnread, handoffRoles, isFirestoreStuck, pairId, ensurePairChat,
+} from "../data";
 import { chatStamp } from "../dates";
 import { foodEmoji } from "../foodEmoji";
 import Avatar from "./Avatar";
 import Handoff from "./Handoff";
 import Reputation from "./Reputation";
+import { pickupSpot } from "../location";
 
 const GAP = 15 * 60 * 1000; // messages more than 15 minutes apart get a timestamp and a new group
 const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
 
-export default function ChatView({ user, chat, post, other, photoURL, onBack, onReview }) {
-  const [messages, setMessages] = useState(null); // null = still loading
+export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections, onReview }) {
+  const [byChat, setByChat] = useState({}); // chat id -> its messages
   const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const threadRef = useRef(null);
 
+  // The shared chat with this person. Make sure it exists so new messages have somewhere to go.
+  const primaryId = pairId(user.uid, other.id);
+  const primary = chats.find((c) => c.id === primaryId) || { id: primaryId, members: [user.uid, other.id].sort() };
+  const hasPrimary = chats.some((c) => c.id === primaryId);
   useEffect(() => {
-    setMessages(null);
+    if (!hasPrimary) {
+      ensurePairChat({ id: user.uid, name: user.name }, other).catch((err) => console.error("Couldn't create the chat:", err));
+    }
+  }, [primaryId, hasPrimary]);
+
+  // Listen to every chat with this person and merge the messages into one thread.
+  const chatIds = chats.map((c) => c.id).sort().join(",");
+  useEffect(() => {
+    setByChat({});
     setLoadError("");
-    return watchMessages(chat.id, setMessages, (err) => setLoadError(
-      err.code === "permission-denied"
-        ? "Firebase blocked reading these messages (permission denied). Publish the latest firestore.rules in the Firebase console."
-        : isFirestoreStuck(err)
-          ? "The connection to the database got stuck. Reload the page to fix it."
-          : err.message
-    ));
-  }, [chat.id]);
-  const list = messages || [];
+    const stops = chatIds.split(",").filter(Boolean).map((id) =>
+      watchMessages(id, (msgs) => setByChat((prev) => ({ ...prev, [id]: msgs })), (err) => setLoadError(
+        err.code === "permission-denied"
+          ? "Firebase blocked reading these messages (permission denied). Publish the latest firestore.rules in the Firebase console."
+          : isFirestoreStuck(err)
+            ? "The connection to the database got stuck. Reload the page to fix it."
+            : err.message
+      ))
+    );
+    return () => stops.forEach((stop) => stop());
+  }, [chatIds]);
+  const loading = chatIds.split(",").filter(Boolean).some((id) => !byChat[id]);
+  const list = Object.values(byChat).flat().sort((a, b) => a.createdAt - b.createdAt);
+  const newestAt = Math.max(0, ...chats.map((c) => c.lastAt || 0));
 
   // Mark as read while open, and keep the newest message in view.
   useEffect(() => {
-    if (isUnread(chat, user)) markChatRead(user, chat).catch(() => {});
+    for (const c of chats) if (isUnread(c, user)) markChatRead(user, c).catch(() => {});
     const el = threadRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [list.length, chat.lastAt]);
+  }, [list.length, newestAt]);
 
   async function send(content) {
     if (!content.trim()) return;
     setError("");
     try {
-      await sendMessage(user, chat, content);
+      await sendMessage(user, primary, content);
       setText("");
     } catch (err) {
       setError("Couldn't send: " + err.message);
@@ -51,25 +76,34 @@ export default function ChatView({ user, chat, post, other, photoURL, onBack, on
   // "Seen" goes under my last message once the other person has read up to it.
   let lastMine = -1;
   list.forEach((m, i) => { if (m.senderId === user.uid) lastMine = i; });
-  const theirRead = (chat.lastRead || {})[other.id] || 0;
+  const theirRead = Math.max(0, ...chats.map((c) => (c.lastRead || {})[other.id] || 0));
   const seen = lastMine >= 0 && lastMine === list.length - 1 && theirRead >= list[lastMine].createdAt;
 
-  let strip = <div className="dm-strip">This post was deleted.</div>;
-  if (post && post.status === "open") {
-    strip = null; // not claimed (yet), so there's no hand-off to show
-  } else if (post) {
+  // A hand-off strip for each item you're still trading. If none are active, celebrate the latest one.
+  const active = posts.filter((p) => p.status === "claimed");
+  const done = posts.find((p) => p.status === "completed");
+  const stripPosts = active.length ? active : done ? [done] : [];
+  const strips = stripPosts.map((post) => {
     const { giverName, receiverName } = handoffRoles(post);
-    strip = (
-      <div className={post.status === "completed" ? "dm-strip done" : "dm-strip"}>
+    const done = post.status === "completed";
+    return (
+      <div key={post.id} className={done ? "dm-strip done" : "dm-strip"}>
         <span>
-          {post.status === "completed"
+          {done
             ? <>🎉 Hand-off complete! {post.item} was added to {receiverName}'s pantry.</>
-            : <><strong>{giverName}</strong> → <strong>{receiverName}</strong> · {post.item}{post.quantity && ` (${post.quantity})`}</>}
+            : <>{foodEmoji(post.item)} <strong>{giverName}</strong> → <strong>{receiverName}</strong> · {post.item}{post.quantity && ` (${post.quantity})`}</>}
         </span>
-        <span className="dm-strip-actions"><Handoff post={post} user={user} onReview={onReview} /></span>
+        <span className="dm-strip-actions">
+          {/* The person receiving the food walks to the giver, so only they get directions. */}
+          {!done && onDirections && pickupSpot(post, user) && (
+            <button className="dm-directions" onClick={() => onDirections(post)} title="Walking directions" aria-label={`Walking directions for ${post.item}`}>🧭</button>
+          )}
+          <Handoff post={post} user={user} onReview={onReview} />
+        </span>
       </div>
     );
-  }
+  });
+  const topic = active.length ? active.map((p) => p.item).join(", ") : (posts[0] && posts[0].item) || primary.item || "";
 
   return (
     <section className="card dm-chat">
@@ -81,11 +115,11 @@ export default function ChatView({ user, chat, post, other, photoURL, onBack, on
         <div className="dm-header-text">
           <strong>{other.name}</strong>
           <Reputation uid={other.id} />
-          <span className="muted">{foodEmoji(chat.item)} about {chat.item}{post && ` · 📍 ${post.location}`}</span>
+          {topic && <span className="muted">{foodEmoji(topic.split(", ")[0])} about {topic}</span>}
         </div>
       </header>
 
-      {strip}
+      {strips.length > 0 && <div className="dm-strips">{strips}</div>}
 
       <div className="dm-thread" ref={threadRef}>
         {/* Profile intro at the top of the thread, like Instagram */}
@@ -93,12 +127,12 @@ export default function ChatView({ user, chat, post, other, photoURL, onBack, on
           <Avatar name={other.name} photoURL={photoURL} size={88} />
           <strong>{other.name}</strong>
           <Reputation uid={other.id} showNote />
-          <span className="muted">Spare Shelf neighbor · about {chat.item}</span>
+          <span className="muted">Spare Shelf neighbor{topic && ` · about ${topic}`}</span>
           <span className="muted">Say hi and pick a time and place to meet.</span>
         </div>
 
         {loadError && <p className="error dm-load">{loadError}</p>}
-        {!loadError && messages === null && <p className="muted dm-load">Loading messages…</p>}
+        {!loadError && loading && <p className="muted dm-load">Loading messages…</p>}
 
         {list.map((m, i) => {
           const prev = list[i - 1];

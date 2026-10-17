@@ -40,6 +40,8 @@ Open the link it prints (usually http://localhost:5173). Without Firebase keys t
 | `src/components/Messages.jsx` | Messages tab: list of your chats. |
 | `src/components/ChatView.jsx` | One chat about one post, with the hand-off confirmation. |
 | `src/components/Handoff.jsx` | "I handed it off" / "I got it" buttons. A post completes when both sides confirm. |
+| `src/components/MapPanel.jsx` | Map on the right: OpenStreetMap streets (Leaflet), zoom, post pins, walking directions. |
+| `src/directions.js` | Walking routes from the free OpenStreetMap routing service, plus step text. |
 | `src/recipes.js` | The mock recipe data. Add recipes here. |
 | `src/matching.js` | Matches ingredient names to pantry items and posts. |
 | `src/dates.js` | Best-by date helpers. |

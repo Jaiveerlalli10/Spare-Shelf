@@ -3,7 +3,7 @@ import { claimPost, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
 import Reputation from "./Reputation";
-import { milesToPost, awayLabel } from "../location";
+import { milesToPost, awayLabel, pickupSpot } from "../location";
 import { foodEmoji } from "../foodEmoji";
 
 function timeAgo(ms) {
@@ -19,7 +19,9 @@ const firstName = (name) => (name || "").split(" ")[0];
 // `onMessage(post)` opens the chat for a claimed post.
 // `here` is the viewer's housing location, used to show "0.3 mi away".
 // `index` staggers the entrance animation.
-export default function PostCard({ post, user, here, onMessage, onReview, index = 0 }) {
+// `onDirections(post)` shows walking directions to this post on the map.
+// `onReview(post)` opens the hand-off review sheet.
+export default function PostCard({ post, user, here, onMessage, onReview, onDirections, index = 0 }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
@@ -52,7 +54,7 @@ export default function PostCard({ post, user, here, onMessage, onReview, index 
     );
   } else if (post.status === "open") {
     actions = (
-      <button className="btn primary" onClick={() => claimPost(user, post)}>
+      <button className="btn primary" onClick={() => claimPost(user, post, here)}>
         {isOffer ? "I'll take it" : "I can help"}
       </button>
     );
@@ -82,6 +84,10 @@ export default function PostCard({ post, user, here, onMessage, onReview, index 
       </p>
       {post.notes && <p className="notes">{post.notes}</p>}
       <div className="actions">
+        {/* Only the person receiving the food walks, so only they get directions. */}
+        {here && onDirections && pickupSpot(post, user) && (
+          <button className="btn ghost" onClick={() => onDirections(post)}>🧭 Directions</button>
+        )}
         {actions}
         {user && inChat && post.status !== "open" && <Handoff post={post} user={user} onReview={onReview} />}
       </div>

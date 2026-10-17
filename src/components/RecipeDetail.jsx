@@ -61,7 +61,7 @@ export default function RecipeDetail({ recipe, pantry, posts, user, here, onBack
                             <button className="btn ghost small" onClick={() => onMessage(p)}>💬 Message</button>
                           </span>
                         ) : (
-                          <button className="btn primary small" onClick={() => claimPost(user, p)}>I'll take it</button>
+                          <button className="btn primary small" onClick={() => claimPost(user, p, here)}>I'll take it</button>
                         )}
                       </li>
                     ))}
