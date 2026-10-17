@@ -18,7 +18,8 @@ const firstName = (name) => (name || "").split(" ")[0];
 // `onMessage(post)` opens the chat for a claimed post.
 // `here` is the viewer's housing location, used to show "0.3 mi away".
 // `index` staggers the entrance animation.
-export default function PostCard({ post, user, here, onMessage, index = 0 }) {
+// `onDirections(post)` shows walking directions to this post on the map.
+export default function PostCard({ post, user, here, onMessage, onDirections, index = 0 }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
@@ -80,7 +81,12 @@ export default function PostCard({ post, user, here, onMessage, index = 0 }) {
         )}
       </p>
       {post.notes && <p className="notes">{post.notes}</p>}
-      <div className="actions">{actions}</div>
+      <div className="actions">
+        {user && here && !isMine && post.status !== "completed" && Number.isFinite(post.approxLat) && onDirections && (
+          <button className="btn ghost" onClick={() => onDirections(post)}>🧭 Directions</button>
+        )}
+        {actions}
+      </div>
       </div>
     </article>
   );

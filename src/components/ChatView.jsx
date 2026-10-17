@@ -9,7 +9,7 @@ import Handoff from "./Handoff";
 const GAP = 15 * 60 * 1000; // messages more than 15 minutes apart get a timestamp and a new group
 const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
 
-export default function ChatView({ user, chat, post, other, photoURL, onBack }) {
+export default function ChatView({ user, chat, post, other, photoURL, onBack, onDirections }) {
   const [messages, setMessages] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
@@ -81,6 +81,10 @@ export default function ChatView({ user, chat, post, other, photoURL, onBack }) 
           <strong>{other.name}</strong>
           <span className="muted">{foodEmoji(chat.item)} about {chat.item}{post && ` · 📍 ${post.location}`}</span>
         </div>
+        {/* You walk to the poster, so only the person who claimed it gets directions. */}
+        {post && post.ownerId !== user.uid && Number.isFinite(post.approxLat) && onDirections && (
+          <button className="dm-directions" onClick={() => onDirections(post)} title="Walking directions" aria-label="Walking directions">🧭</button>
+        )}
       </header>
 
       {strip}

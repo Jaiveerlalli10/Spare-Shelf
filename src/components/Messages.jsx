@@ -14,7 +14,7 @@ export function otherPerson(chat, user) {
     : { id: chat.ownerId, name: chat.ownerName };
 }
 
-export default function Messages({ user, chats, posts, openChatId, onOpen, onBack }) {
+export default function Messages({ user, chats, posts, openChatId, onOpen, onBack, onDirections }) {
   const people = usePeople(chats.map((c) => otherPerson(c, user).id));
 
   if (openChatId) {
@@ -24,7 +24,7 @@ export default function Messages({ user, chats, posts, openChatId, onOpen, onBac
     return (
       <ErrorBoundary key={chat.id} label="This chat">
         <ChatView user={user} chat={chat} post={posts.find((p) => p.id === chat.postId)}
-          other={other} photoURL={people[other.id]?.photoURL} onBack={onBack} />
+          other={other} photoURL={people[other.id]?.photoURL} onBack={onBack} onDirections={onDirections} />
       </ErrorBoundary>
     );
   }

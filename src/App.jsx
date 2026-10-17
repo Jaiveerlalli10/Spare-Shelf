@@ -11,6 +11,7 @@ import Avatar from "./components/Avatar";
 import Recipes from "./components/Recipes";
 import Messages from "./components/Messages";
 import { milesToPost } from "./location";
+import MapPanel from "./components/MapPanel";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -26,6 +27,7 @@ export default function App() {
   const [editing, setEditing] = useState(false);
   const [chats, setChats] = useState([]);
   const [openChatId, setOpenChatId] = useState(null);
+  const [mapTargetId, setMapTargetId] = useState(null); // post shown with directions on the map
   const uid = user ? user.uid : null;
 
   // Start listening to sign-in state and posts when the page loads.
@@ -135,6 +137,18 @@ export default function App() {
     visible.sort((a, b) => away(a) - away(b));
   }
 
+  const mapTarget = posts.find((p) => p.id === mapTargetId) || null;
+
+  // "🧭 Directions" buttons: select the post on the map. On narrow screens the map sits
+  // above the page content, so scroll up to it.
+  function showDirections(post) {
+    setMapTargetId(post.id);
+    if (window.innerWidth <= 1200) {
+      const el = document.getElementById("map-panel");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
   const TABS = [
     // `tone` gives each section its own color (see the .tone-* classes in styles.css).
     { id: "board", label: "Board", icon: "🏠", tone: "basil", title: "Board", sub: "What your neighbors are offering and asking for." },
@@ -152,7 +166,7 @@ export default function App() {
   }
 
   return (
-    <div className="layout">
+    <div className={showApp ? "layout with-map" : "layout"}>
       {/* ---------- Left column: brand, you, navigation, impact ---------- */}
       <aside className="sidebar">
         <div className="brand">
@@ -254,7 +268,7 @@ export default function App() {
           <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} />
         ) : activeTab === "messages" ? (
           <Messages user={user} chats={chats} posts={posts} openChatId={openChatId}
-            onOpen={setOpenChatId} onBack={() => setOpenChatId(null)} />
+            onOpen={setOpenChatId} onBack={() => setOpenChatId(null)} onDirections={showDirections} />
         ) : (
         <>
           <div className="filters">
@@ -283,13 +297,21 @@ export default function App() {
             ) : visible.length === 0 ? (
               <p className="empty">Nothing here yet. Be the first to post!</p>
             ) : (
-              visible.map((p, i) => <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} index={i} />)
+              visible.map((p, i) => (
+                <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onDirections={showDirections} index={i} />
+              ))
             )}
           </main>
         </>
         )}
       </>}
       </div>
+
+      {/* ---------- Right column: map + directions ---------- */}
+      {showApp && (
+        <MapPanel here={here} posts={posts} user={user} target={mapTarget}
+          onSelect={(post) => setMapTargetId(post.id)} onClear={() => setMapTargetId(null)} />
+      )}
     </div>
   );
 }
