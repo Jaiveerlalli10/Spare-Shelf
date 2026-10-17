@@ -11,6 +11,7 @@
 //   claimedById, claimedByName, claimedByEmail,
 //   pantryItemId: for offers, the exact pantry entry being given away ("" if none),
 //   approxLat, approxLng: the poster's housing rounded to ~200 m, for "0.3 mi away" (null if unknown),
+//   claimerApproxLat, claimerApproxLng: the claimer's housing, rounded the same way (set when claiming),
 //   ownerConfirmed, claimerConfirmed: true once each side confirms the hand-off,
 //   createdAt: number (milliseconds)
 // }
@@ -230,9 +231,16 @@ export async function createPost(user, fields) {
   demo.addPost(post);
 }
 
-/** Someone says "I can help" (on a request) or "I'll take it" (on an offer). Also opens a chat between the two. */
-export async function claimPost(user, post) {
-  const changes = { status: "claimed", claimedById: user.uid, claimedByName: user.name, claimedByEmail: user.email };
+/**
+ * Someone says "I can help" (on a request) or "I'll take it" (on an offer). Also opens a chat between the two.
+ * `origin` is the claimer's housing; a rounded version is saved so a requester can walk to their helper.
+ */
+export async function claimPost(user, post, origin) {
+  const approx = approxPoint(origin);
+  const changes = {
+    status: "claimed", claimedById: user.uid, claimedByName: user.name, claimedByEmail: user.email,
+    claimerApproxLat: approx ? approx.lat : null, claimerApproxLng: approx ? approx.lng : null,
+  };
   if (!isDemoMode) await updateDoc(doc(db, "posts", post.id), changes);
   else demo.updatePost(post.id, changes);
   await ensureChat({ ...post, ...changes });
@@ -296,6 +304,15 @@ export async function addLocationToPost(post, origin) {
   const approx = approxPoint(origin);
   if (!approx) return;
   const changes = { approxLat: approx.lat, approxLng: approx.lng };
+  if (!isDemoMode) return updateDoc(doc(db, "posts", post.id), changes);
+  demo.updatePost(post.id, changes);
+}
+
+/** Saves the claimer's rounded location on a post they claimed before locations were saved on claims. */
+export async function addClaimerLocation(post, origin) {
+  const approx = approxPoint(origin);
+  if (!approx) return;
+  const changes = { claimerApproxLat: approx.lat, claimerApproxLng: approx.lng };
   if (!isDemoMode) return updateDoc(doc(db, "posts", post.id), changes);
   demo.updatePost(post.id, changes);
 }

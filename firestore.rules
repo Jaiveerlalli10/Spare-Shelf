@@ -21,7 +21,10 @@ service cloud.firestore {
         // Anyone can claim an open post.
         (resource.data.status == "open" &&
          request.resource.data.claimedById == request.auth.uid &&
-         onlyChanges(["status", "claimedById", "claimedByName", "claimedByEmail"])) ||
+         onlyChanges(["status", "claimedById", "claimedByName", "claimedByEmail", "claimerApproxLat", "claimerApproxLng"])) ||
+        // The claimer can save their (rounded) location, so a requester can walk to them.
+        (resource.data.claimedById == request.auth.uid &&
+         onlyChanges(["claimerApproxLat", "claimerApproxLng"])) ||
         // The claimer can confirm their side of the hand-off. It only becomes
         // "completed" if the owner has already confirmed.
         (resource.data.claimedById == request.auth.uid &&

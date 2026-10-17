@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useRef, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, watchChats, ensureChat, isUnread, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, watchChats, ensureChat, isUnread, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -117,9 +117,17 @@ export default function App() {
     if (!here) return;
     for (const p of posts) {
       const needsSpot = p.ownerId === uid && p.status !== "completed" && !Number.isFinite(p.approxLat);
-      if (!needsSpot || locationFixesTried.current.has(p.id)) continue;
-      locationFixesTried.current.add(p.id);
-      addLocationToPost(p, here).catch((err) => console.error("Couldn't add a location to an old post:", err));
+      if (needsSpot && !locationFixesTried.current.has(p.id)) {
+        locationFixesTried.current.add(p.id);
+        addLocationToPost(p, here).catch((err) => console.error("Couldn't add a location to an old post:", err));
+      }
+      // Same for requests I agreed to help with before claims saved a location (so the requester can find me).
+      const needsClaimerSpot = p.claimedById === uid && p.status === "claimed" && !Number.isFinite(p.claimerApproxLat);
+      const key = "claim:" + p.id;
+      if (needsClaimerSpot && !locationFixesTried.current.has(key)) {
+        locationFixesTried.current.add(key);
+        addClaimerLocation(p, here).catch((err) => console.error("Couldn't add a claimer location:", err));
+      }
     }
   }, [uid, here?.lat, here?.lng, posts]);
 

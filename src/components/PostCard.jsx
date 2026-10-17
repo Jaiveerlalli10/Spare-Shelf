@@ -2,7 +2,7 @@
 import { claimPost, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
-import { milesToPost, awayLabel } from "../location";
+import { milesToPost, awayLabel, pickupSpot } from "../location";
 import { foodEmoji } from "../foodEmoji";
 
 function timeAgo(ms) {
@@ -53,7 +53,7 @@ export default function PostCard({ post, user, here, onMessage, onDirections, in
     );
   } else if (post.status === "open") {
     actions = (
-      <button className="btn primary" onClick={() => claimPost(user, post)}>
+      <button className="btn primary" onClick={() => claimPost(user, post, here)}>
         {isOffer ? "I'll take it" : "I can help"}
       </button>
     );
@@ -82,7 +82,8 @@ export default function PostCard({ post, user, here, onMessage, onDirections, in
       </p>
       {post.notes && <p className="notes">{post.notes}</p>}
       <div className="actions">
-        {user && here && !isMine && post.status !== "completed" && Number.isFinite(post.approxLat) && onDirections && (
+        {/* Only the person receiving the food walks, so only they get directions. */}
+        {here && onDirections && pickupSpot(post, user) && (
           <button className="btn ghost" onClick={() => onDirections(post)}>🧭 Directions</button>
         )}
         {actions}

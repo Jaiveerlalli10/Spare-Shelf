@@ -685,6 +685,13 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   100% { box-shadow: 0 0 0 18px rgba(55, 151, 240, 0); }
 }
 
+/* Pickup spot at the end of a route */
+.map-dest span {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: #1d1230; border: 3px solid #a334fa; font-size: 0.9rem;
+  box-shadow: 0 0 0 6px rgba(163, 52, 250, 0.25);
+}
+
 /* Directions card under the map */
 .map-card {
   max-height: 42%; overflow-y: auto; padding: 12px 14px; border-radius: 16px;

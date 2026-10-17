@@ -97,3 +97,39 @@ export function awayLabel(miles) {
   if (miles < 10) return `${miles.toFixed(1)} mi away`;
   return `${Math.round(miles)} mi away`;
 }
+
+// ---------- Who walks where ----------
+//
+// The person RECEIVING the food always walks to the person GIVING it:
+// - Offer: the poster gives, so anyone else walks to the poster's spot.
+// - Request: the poster receives, so once someone claims it, the poster walks to the helper's spot
+//   (saved on the post as claimerApproxLat/claimerApproxLng when they claim it).
+
+function spotOf(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+}
+
+/** Where `user` should walk to pick this post up: { lat, lng, name, label }, or null if they don't travel. */
+export function pickupSpot(post, user) {
+  if (!post || !user || post.status === "completed") return null;
+  if (post.type === "offer") {
+    if (post.ownerId === user.uid) return null;
+    const s = spotOf(post.approxLat, post.approxLng);
+    return s && { ...s, name: post.ownerName, label: post.location };
+  }
+  if (post.ownerId !== user.uid || post.status !== "claimed") return null;
+  const s = spotOf(post.claimerApproxLat, post.claimerApproxLng);
+  return s && { ...s, name: post.claimedByName, label: `${post.claimedByName}'s place` };
+}
+
+/** Why there are no directions for `user` on this post (shown on the map card). */
+export function noTripReason(post, user) {
+  if (post.status === "completed") return "This hand-off is done.";
+  const mine = user && post.ownerId === user.uid;
+  if (post.type === "offer") {
+    return mine ? "This is your offer. Whoever takes it comes to you to pick it up." : "This post has no location saved yet.";
+  }
+  if (!mine) return `${post.ownerName} is asking for this. If you help, they'll come pick it up from you.`;
+  if (post.status === "open") return "When a neighbor offers to help, you'll get directions to them here.";
+  return `Ask ${post.claimedByName} in chat where to pick it up.`;
+}

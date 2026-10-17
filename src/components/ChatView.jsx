@@ -5,6 +5,7 @@ import { chatStamp } from "../dates";
 import { foodEmoji } from "../foodEmoji";
 import Avatar from "./Avatar";
 import Handoff from "./Handoff";
+import { pickupSpot } from "../location";
 
 const GAP = 15 * 60 * 1000; // messages more than 15 minutes apart get a timestamp and a new group
 const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
@@ -81,8 +82,8 @@ export default function ChatView({ user, chat, post, other, photoURL, onBack, on
           <strong>{other.name}</strong>
           <span className="muted">{foodEmoji(chat.item)} about {chat.item}{post && ` · 📍 ${post.location}`}</span>
         </div>
-        {/* You walk to the poster, so only the person who claimed it gets directions. */}
-        {post && post.ownerId !== user.uid && Number.isFinite(post.approxLat) && onDirections && (
+        {/* The person receiving the food walks to the giver, so only they get directions. */}
+        {onDirections && pickupSpot(post, user) && (
           <button className="dm-directions" onClick={() => onDirections(post)} title="Walking directions" aria-label="Walking directions">🧭</button>
         )}
       </header>

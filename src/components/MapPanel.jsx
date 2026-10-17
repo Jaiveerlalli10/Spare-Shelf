@@ -5,6 +5,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { foodEmoji } from "../foodEmoji";
 import { walkingRoute, stepText, formatWalkDistance } from "../directions";
+import { pickupSpot, noTripReason } from "../location";
 
 const CAMPUS = [47.6553, -122.3035]; // fallback center: UW Seattle
 // Standard OpenStreetMap tiles (free, no key). They're darkened with a CSS filter (.leaflet-tile-pane in styles.css).
@@ -96,8 +97,8 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
   // Active posts that can't be pinned (posted before locations were saved).
   const unpinned = posts.filter((p) => p.status !== "completed" && !hasSpot(p)).length;
 
-  // Walking directions from you to the selected post.
-  const isMine = target && user && target.ownerId === user.uid;
+  // Walking directions from you to wherever you pick the food up (see pickupSpot in location.js).
+  const dest = target ? pickupSpot(target, user) : null;
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -105,19 +106,26 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
     routeRef.current = null;
     setRoute(null);
     setShowSteps(false);
-    if (!target || !hasSpot(target)) {
+    if (!target) {
       setRouteState("idle");
       return;
     }
-    const to = { lat: target.approxLat, lng: target.approxLng };
-    if (!here || isMine) {
+    if (!here || !dest) {
+      // No trip for you: just show where the post is.
       setRouteState("idle");
-      map.setView([to.lat, to.lng], Math.max(map.getZoom(), 16));
+      if (hasSpot(target)) map.setView([target.approxLat, target.approxLng], Math.max(map.getZoom(), 16));
       return;
     }
+    const to = { lat: dest.lat, lng: dest.lng };
 
+    // Mark the pickup spot (for requests it's the helper's place, which has no post pin).
+    const endMarker = L.marker([to.lat, to.lng], {
+      icon: L.divIcon({ className: "map-dest", html: "<span>🤝</span>", iconSize: [30, 30] }),
+      title: `Pick up from ${dest.name}`,
+      zIndexOffset: 950,
+    });
     const draw = (layers) => {
-      routeRef.current = L.featureGroup(layers).addTo(map);
+      routeRef.current = L.featureGroup([...layers, endMarker]).addTo(map);
       map.fitBounds(routeRef.current.getBounds(), { padding: [48, 48], maxZoom: 17 });
     };
     const ctrl = new AbortController();
@@ -141,7 +149,7 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
         setRouteState("ready");
       });
     return () => ctrl.abort();
-  }, [target?.id, here?.lat, here?.lng]);
+  }, [target?.id, dest?.lat, dest?.lng, here?.lat, here?.lng]);
 
   return (
     <aside className="map-panel" id="map-panel" aria-label="Map and directions">
@@ -167,15 +175,16 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
           <div className="map-card-top">
             <span className="map-card-emoji" aria-hidden>{foodEmoji(target.item)}</span>
             <div className="map-card-title">
-              <strong>{isMine ? "Your post" : target.ownerName} · {target.item}</strong>
-              <span className="muted">📍 {target.location}</span>
+              <strong>
+                {user && target.ownerId === user.uid ? "Your post" : target.ownerName} · {target.item}
+              </strong>
+              <span className="muted">📍 {dest ? `Pick up from ${dest.label}` : target.location}</span>
             </div>
             <button className="map-close" onClick={onClear} aria-label="Close directions">×</button>
           </div>
 
-          {!hasSpot(target) && <p className="muted">This post has no location saved, so it can't be shown on the map.</p>}
-          {hasSpot(target) && isMine && <p className="muted">This is your post. Neighbors get directions to you.</p>}
-          {hasSpot(target) && !here && !isMine && <p className="muted">Finish your profile to get directions from your place.</p>}
+          {!dest && <p className="muted">{noTripReason(target, user)}</p>}
+          {dest && !here && <p className="muted">Finish your profile to get directions from your place.</p>}
           {routeState === "loading" && <p className="muted">Finding a walking route…</p>}
 
           {route && (
