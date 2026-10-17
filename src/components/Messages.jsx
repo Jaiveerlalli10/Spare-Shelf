@@ -5,6 +5,7 @@ import { foodEmoji } from "../foodEmoji";
 import { usePeople } from "../usePeople";
 import Avatar from "./Avatar";
 import ChatView from "./ChatView";
+import ErrorBoundary from "./ErrorBoundary";
 
 /** The person on the other side of this chat. */
 export function otherPerson(chat, user) {
@@ -21,8 +22,10 @@ export default function Messages({ user, chats, posts, openChatId, onOpen, onBac
     if (!chat) return <p className="empty">Opening chat…</p>;
     const other = otherPerson(chat, user);
     return (
-      <ChatView user={user} chat={chat} post={posts.find((p) => p.id === chat.postId)}
-        other={other} photoURL={people[other.id]?.photoURL} onBack={onBack} />
+      <ErrorBoundary key={chat.id} label="This chat">
+        <ChatView user={user} chat={chat} post={posts.find((p) => p.id === chat.postId)}
+          other={other} photoURL={people[other.id]?.photoURL} onBack={onBack} />
+      </ErrorBoundary>
     );
   }
 

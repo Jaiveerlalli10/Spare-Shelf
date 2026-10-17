@@ -21,11 +21,35 @@ import { milesBetween, approxPoint } from "./location";
 import { NEAR_CAMPUS_MILES } from "./housing";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
 import {
-  addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, runTransaction,
+  addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, runTransaction,
   setDoc, updateDoc, where, writeBatch,
 } from "firebase/firestore";
 
 export const isDemoMode = !firebaseReady;
+
+/**
+ * Starts a live Firestore listener (same arguments as onSnapshot), but never lets it crash the page.
+ * The Firestore library has a known bug where its internal queue breaks ("INTERNAL ASSERTION FAILED")
+ * after listeners are started and stopped very quickly; after that, every call throws right away.
+ * Here, those throws go to `onError` instead, and stopping the listener is safe too.
+ */
+function listen(target, onNext, onError) {
+  try {
+    const stop = onSnapshot(target, onNext, onError);
+    return () => {
+      try { stop(); } catch (err) { console.error("Couldn't stop a Firestore listener:", err); }
+    };
+  } catch (err) {
+    console.error("Couldn't start a Firestore listener:", err);
+    if (onError) onError(err);
+    return () => {};
+  }
+}
+
+/** True for the Firestore library bug above. The only fix is reloading the page. */
+export function isFirestoreStuck(err) {
+  return /INTERNAL ASSERTION FAILED|AsyncQueue is already failed/i.test(String(err && (err.message || err)));
+}
 
 // ---------- Users ----------
 
@@ -78,7 +102,7 @@ export function watchProfile(user, callback) {
     return () => {};
   }
   if (!isDemoMode) {
-    return onSnapshot(
+    return listen(
       doc(db, "users", user.uid),
       (snap) => callback(snap.exists() ? snap.data() : null),
       (err) => {
@@ -125,20 +149,22 @@ export async function saveProfile(user, fields) {
 // The full profile (housing, bio...) stays private at users/{uid}. Only the name and
 // profile picture are copied to publicProfiles/{uid}, so chats can show photos.
 
-/** Calls callback({ name, photoURL } or null) for one person, now and whenever it changes. */
-export function watchPublicProfile(uid, callback) {
-  if (!isDemoMode) {
-    return onSnapshot(
-      doc(db, "publicProfiles", uid),
-      (snap) => callback(snap.exists() ? snap.data() : null),
-      (err) => {
+const publicProfileCache = new Map(); // uid -> Promise<{ name, photoURL } | null>
+
+/** Loads one person's name + photo (once per page load). Resolves to null if missing or not allowed. */
+export function getPublicProfile(uid) {
+  if (isDemoMode) return Promise.resolve(demo.getPublicProfile(uid));
+  if (!publicProfileCache.has(uid)) {
+    const request = getDoc(doc(db, "publicProfiles", uid))
+      .then((snap) => (snap.exists() ? snap.data() : null))
+      .catch((err) => {
         console.error("Couldn't load a profile picture (check Firestore rules):", err);
-        callback(null);
-      }
-    );
+        publicProfileCache.delete(uid); // try again next time
+        return null;
+      });
+    publicProfileCache.set(uid, request);
   }
-  callback(demo.getPublicProfile(uid));
-  return demo.on("profile", () => callback(demo.getPublicProfile(uid)));
+  return publicProfileCache.get(uid);
 }
 
 /** Publishes this person's name and photo ("" = no photo). */
@@ -154,7 +180,7 @@ export async function savePublicProfile(user, photoURL) {
 export function watchPosts(callback) {
   if (!isDemoMode) {
     const q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
-    return onSnapshot(
+    return listen(
       q,
       (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => console.error("Couldn't load posts (check Firestore rules):", err)
@@ -279,7 +305,7 @@ function pantryCollection(user) {
 /** Calls callback(listOfItems) now and every time this user's pantry changes. */
 export function watchPantry(user, callback) {
   if (!isDemoMode) {
-    return onSnapshot(
+    return listen(
       pantryCollection(user),
       (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => console.error("Couldn't load pantry (check Firestore rules):", err)
@@ -333,7 +359,7 @@ const byLatest = (chats) => chats.sort((a, b) => (b.lastAt || 0) - (a.lastAt || 
 export function watchChats(user, callback) {
   if (!isDemoMode) {
     const q = query(collection(db, "chats"), where("members", "array-contains", user.uid));
-    return onSnapshot(
+    return listen(
       q,
       (snap) => callback(byLatest(snap.docs.map((d) => ({ id: d.id, ...d.data() })))),
       (err) => console.error("Couldn't load chats (check Firestore rules):", err)
@@ -348,7 +374,7 @@ export function watchChats(user, callback) {
 export function watchMessages(chatId, callback, onError) {
   if (!isDemoMode) {
     const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt"));
-    return onSnapshot(
+    return listen(
       q,
       (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => {

@@ -606,3 +606,11 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   .post-emoji { width: 48px; height: 48px; font-size: 1.6rem; border-radius: 14px; }
   .card.recipe-hero { flex-direction: column; text-align: center; }
 }
+
+/* Crash message (ErrorBoundary) */
+.card.crash { border: 1px solid var(--warn); }
+.crash h3 { margin: 0 0 4px; }
+.crash-details {
+  max-height: 260px; overflow: auto; margin: 10px 0 12px; padding: 10px 12px; border-radius: 10px;
+  background: var(--surface-2); color: var(--warn); font-size: 0.75rem; white-space: pre-wrap; word-break: break-word;
+}

@@ -1,6 +1,7 @@
-// React hook: live name + photo for a list of people, as { [uid]: { name, photoURL } }.
+// React hook: name + photo for a list of people, as { [uid]: { name, photoURL } }.
+// Each person is loaded once per page load (photos rarely change).
 import { useEffect, useState } from "react";
-import { watchPublicProfile } from "./data";
+import { getPublicProfile } from "./data";
 
 export function usePeople(uids) {
   const key = [...new Set(uids.filter(Boolean))].sort().join(",");
@@ -8,10 +9,13 @@ export function usePeople(uids) {
 
   useEffect(() => {
     if (!key) return;
-    const stops = key.split(",").map((uid) =>
-      watchPublicProfile(uid, (person) => setPeople((prev) => ({ ...prev, [uid]: person })))
-    );
-    return () => stops.forEach((stop) => stop());
+    let cancelled = false;
+    for (const uid of key.split(",")) {
+      getPublicProfile(uid).then((person) => {
+        if (!cancelled) setPeople((prev) => ({ ...prev, [uid]: person }));
+      });
+    }
+    return () => { cancelled = true; };
   }, [key]);
 
   return people;

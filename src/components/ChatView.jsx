@@ -1,6 +1,6 @@
 // One conversation, Instagram-DM style: header, hand-off strip, grouped bubbles, "Seen", composer.
 import { useEffect, useRef, useState } from "react";
-import { watchMessages, sendMessage, markChatRead, isUnread, handoffRoles } from "../data";
+import { watchMessages, sendMessage, markChatRead, isUnread, handoffRoles, isFirestoreStuck } from "../data";
 import { chatStamp } from "../dates";
 import { foodEmoji } from "../foodEmoji";
 import Avatar from "./Avatar";
@@ -19,9 +19,13 @@ export default function ChatView({ user, chat, post, other, photoURL, onBack }) 
   useEffect(() => {
     setMessages(null);
     setLoadError("");
-    return watchMessages(chat.id, setMessages, (err) => setLoadError(err.code === "permission-denied"
-      ? "Firebase blocked reading these messages (permission denied). Publish the latest firestore.rules in the Firebase console."
-      : err.message));
+    return watchMessages(chat.id, setMessages, (err) => setLoadError(
+      err.code === "permission-denied"
+        ? "Firebase blocked reading these messages (permission denied). Publish the latest firestore.rules in the Firebase console."
+        : isFirestoreStuck(err)
+          ? "The connection to the database got stuck. Reload the page to fix it."
+          : err.message
+    ));
   }, [chat.id]);
   const list = messages || [];
 
