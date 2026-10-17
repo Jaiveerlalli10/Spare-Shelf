@@ -6,6 +6,7 @@ import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
 import Pantry from "./components/Pantry";
+import Recipes from "./components/Recipes";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -28,7 +29,7 @@ export default function App() {
     return watchPosts(setPosts);
   }, [uid]);
 
-  // "My posts" and "Pantry" need a signed-in user; fall back to the board otherwise.
+  // Every tab except the board needs a signed-in user; fall back to the board otherwise.
   const activeTab = user ? tab : "board";
 
   function openForm(prefill) {
@@ -41,12 +42,25 @@ export default function App() {
     setDraft(null);
   }
 
-  // Pantry "Share" button: switch to the board with an Offer already filled in.
-  function shareFromPantry(item) {
+  // Switch to the board with the post form already filled in.
+  function startPost(prefill) {
     setTab("board");
-    openForm({ type: "offer", item: item.name, quantity: item.quantity, expiresOn: item.expiresOn });
+    openForm(prefill);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  // Pantry "Share" button -> Offer post.
+  function shareFromPantry(item) {
+    startPost({ type: "offer", item: item.name, quantity: item.quantity, expiresOn: item.expiresOn });
+  }
+
+  // Recipe "Request it" button -> Request post for a missing ingredient.
+  function requestIngredient(ing) {
+    const item = ing.name.charAt(0).toUpperCase() + ing.name.slice(1);
+    startPost({ type: "request", item, quantity: ing.amount });
+  }
+
+  const onPostsTab = activeTab === "board" || activeTab === "mine";
 
   const term = search.trim().toLowerCase();
   const visible = posts.filter((p) => {
@@ -88,26 +102,28 @@ export default function App() {
 
       <div className="toolbar">
         <div className="tabs" role="tablist">
-          {["board", "mine", "pantry"].map((t) => (
+          {[["board", "Board"], ["mine", "My posts"], ["pantry", "Pantry"], ["recipes", "Recipes"]].map(([t, label]) => (
             <button key={t} className={activeTab === t ? "tab active" : "tab"} onClick={() => setTab(t)}
               disabled={t !== "board" && !user}>
-              {t === "board" ? "Board" : t === "mine" ? "My posts" : "Pantry"}
+              {label}
             </button>
           ))}
         </div>
-        {user && activeTab !== "pantry" && (
+        {user && onPostsTab && (
           <button className="btn primary" onClick={() => (showForm ? closeForm() : openForm(null))}>
             {showForm ? "Close" : "+ New post"}
           </button>
         )}
       </div>
 
-      {showForm && user && activeTab !== "pantry" && (
+      {showForm && user && onPostsTab && (
         <PostForm key={draft ? draft.key : "new"} user={user} initial={draft} onDone={closeForm} />
       )}
 
       {activeTab === "pantry" ? (
         <Pantry user={user} onShare={shareFromPantry} />
+      ) : activeTab === "recipes" ? (
+        <Recipes user={user} posts={posts} onRequest={requestIngredient} />
       ) : (
       <>
         <div className="filters">
