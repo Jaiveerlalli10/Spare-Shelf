@@ -16,7 +16,15 @@ export default function App() {
 
   // Start listening to sign-in state and posts when the page loads.
   useEffect(() => watchUser(setUser), []);
-  useEffect(() => watchPosts(setPosts), []);
+  // The live database only lets signed-in users read, so (re)start listening whenever the user changes.
+  const uid = user ? user.uid : null;
+  useEffect(() => {
+    if (!uid && !isDemoMode) {
+      setPosts([]);
+      return;
+    }
+    return watchPosts(setPosts);
+  }, [uid]);
 
   const term = search.trim().toLowerCase();
   const visible = posts.filter((p) => {
@@ -85,7 +93,9 @@ export default function App() {
       </div>
 
       <main className="feed">
-        {visible.length === 0 ? (
+        {!user && !isDemoMode ? (
+          <p className="empty">Sign in to see what your neighbors are sharing.</p>
+        ) : visible.length === 0 ? (
           <p className="empty">Nothing here yet. Be the first to post!</p>
         ) : (
           visible.map((p) => <PostCard key={p.id} post={p} user={user} />)

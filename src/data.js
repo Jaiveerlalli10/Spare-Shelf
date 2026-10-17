@@ -48,7 +48,11 @@ export async function signOut() {
 export function watchPosts(callback) {
   if (!isDemoMode) {
     const q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return onSnapshot(
+      q,
+      (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("Couldn't load posts (check Firestore rules):", err)
+    );
   }
   callback(demo.getPosts());
   return demo.on("posts", () => callback(demo.getPosts()));
