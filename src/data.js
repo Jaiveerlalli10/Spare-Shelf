@@ -10,13 +10,14 @@
 //   status: "open" | "claimed" | "completed",
 //   claimedById, claimedByName, claimedByEmail,
 //   pantryItemId: for offers, the exact pantry entry being given away ("" if none),
+//   approxLat, approxLng: the poster's housing rounded to ~200 m, for "0.3 mi away" (null if unknown),
 //   ownerConfirmed, claimerConfirmed: true once each side confirms the hand-off,
 //   createdAt: number (milliseconds)
 // }
 // A post becomes "completed" only when BOTH sides have confirmed.
 
 import { firebaseReady, auth, db } from "./firebase";
-import { milesBetween } from "./location";
+import { milesBetween, approxPoint } from "./location";
 import { NEAR_CAMPUS_MILES } from "./housing";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
 import {
@@ -135,6 +136,7 @@ export function watchPosts(callback) {
   return demo.on("posts", () => callback(demo.getPosts()));
 }
 
+// `fields.origin` is the poster's housing location ({ lat, lng }); only a rounded version is saved.
 // For an offer, `fields.pantryItemId` says which pantry entry is being given away.
 // If it's empty, a new pantry entry is created for the offer (offering it means you have it).
 export async function createPost(user, fields) {
@@ -147,6 +149,7 @@ export async function createPost(user, fields) {
       console.error("Couldn't add it to your pantry, posting anyway:", err);
     }
   }
+  const approx = approxPoint(fields.origin);
   const post = {
     type: fields.type,
     item: fields.item.trim(),
@@ -163,6 +166,8 @@ export async function createPost(user, fields) {
     claimedByName: "",
     claimedByEmail: "",
     pantryItemId,
+    approxLat: approx ? approx.lat : null,
+    approxLng: approx ? approx.lng : null,
     ownerConfirmed: false,
     claimerConfirmed: false,
     createdAt: Date.now(),
@@ -383,8 +388,18 @@ function seedPosts() {
       status: "completed", claimedById: "alex", claimedByName: "Alex", ownerId: "lee", ownerName: "Lee", ownerEmail: "lee@uw.edu", createdAt: now - 26 * HOUR },
     { ...base, id: "s6", type: "offer", item: "Milk", quantity: "Half gallon", location: "Alder Hall", estValue: 3,
       expiresOn: daysFromNow(1), status: "completed", claimedById: "maya", claimedByName: "Maya", ownerId: "jordan", ownerName: "Jordan", ownerEmail: "jordan@uw.edu", createdAt: now - 30 * HOUR },
-  ];
+  ].map((p) => ({ ...p, ...SEED_SPOTS[p.location] }));
 }
+
+// Rough points around UW Seattle for the demo posts' pickup areas.
+const SEED_SPOTS = {
+  "Alder Hall": { approxLat: 47.656, approxLng: -122.314 },
+  "West Campus": { approxLat: 47.658, approxLng: -122.316 },
+  "The Ave": { approxLat: 47.660, approxLng: -122.312 },
+  "Lander Hall": { approxLat: 47.656, approxLng: -122.316 },
+  "McCarty Hall": { approxLat: 47.662, approxLng: -122.304 },
+  "North Campus": { approxLat: 47.660, approxLng: -122.304 },
+};
 
 function seedPantry() {
   const now = Date.now();

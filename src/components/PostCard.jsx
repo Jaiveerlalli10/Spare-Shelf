@@ -2,6 +2,7 @@
 import { claimPost, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
+import { milesToPost, awayLabel } from "../location";
 
 function timeAgo(ms) {
   const mins = Math.round((Date.now() - ms) / 60000);
@@ -14,11 +15,13 @@ function timeAgo(ms) {
 const firstName = (name) => (name || "").split(" ")[0];
 
 // `onMessage(post)` opens the chat for a claimed post.
-export default function PostCard({ post, user, onMessage }) {
+// `here` is the viewer's housing location, used to show "0.3 mi away".
+export default function PostCard({ post, user, here, onMessage }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
   const days = daysUntil(post.expiresOn);
+  const away = isMine ? "" : awayLabel(milesToPost(here, post));
   const inChat = isMine || claimedByMe; // the two people in this hand-off
   const otherName = isMine ? post.claimedByName : post.ownerName;
   const messageButton = (
@@ -65,7 +68,7 @@ export default function PostCard({ post, user, onMessage }) {
         {post.quantity && <span className="qty"> · {post.quantity}</span>}
       </h2>
       <p className="meta">
-        📍 {post.location} · {timeAgo(post.createdAt)}
+        📍 {post.location}{away && <> · <span className="away">{away}</span></>} · {timeAgo(post.createdAt)}
         {days !== null && (
           <span className={days <= 1 ? "expiry soon" : "expiry"}>
             {" "}· {expiryLabel(days)}

@@ -68,3 +68,32 @@ async function neighborhoodLabel(lat, lng) {
     return "Location verified";
   }
 }
+
+// ---------- Distances on posts ----------
+//
+// Posts store the poster's housing location rounded to a ~200 m grid (approxLat/approxLng),
+// so other people see "0.3 mi away" without learning anyone's exact address.
+
+const GRID = 0.002; // degrees, roughly 200 m
+
+/** Rounds a point to the grid. Returns null if the point is missing. */
+export function approxPoint(point) {
+  if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
+  const snap = (v) => Number((Math.round(v / GRID) * GRID).toFixed(3));
+  return { lat: snap(point.lat), lng: snap(point.lng) };
+}
+
+/** Miles from `here` (the viewer's housing) to a post, or null if either location is unknown. */
+export function milesToPost(here, post) {
+  if (!here || !post || !Number.isFinite(post.approxLat) || !Number.isFinite(post.approxLng)) return null;
+  const miles = milesBetween(here, { lat: post.approxLat, lng: post.approxLng });
+  return Number.isFinite(miles) ? miles : null;
+}
+
+/** Short label like "0.3 mi away". Empty if the distance is unknown. */
+export function awayLabel(miles) {
+  if (miles === null || miles === undefined) return "";
+  if (miles < 0.1) return "< 0.1 mi away";
+  if (miles < 10) return `${miles.toFixed(1)} mi away`;
+  return `${Math.round(miles)} mi away`;
+}

@@ -7,7 +7,8 @@ const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn
 
 // `initial` (optional) pre-fills the form, e.g. when sharing an item from the pantry.
 // `posts` is used to hide pantry entries that are already on the board.
-export default function PostForm({ user, posts, onDone, initial }) {
+// `origin` is the poster's housing location from their profile (a rounded version is saved for distances).
+export default function PostForm({ user, posts, origin, onDone, initial }) {
   const [form, setForm] = useState({ ...EMPTY, ...initial });
   const [pantry, setPantry] = useState([]);
 
@@ -39,7 +40,7 @@ export default function PostForm({ user, posts, onDone, initial }) {
     setSaving(true);
     setError("");
     try {
-      await createPost(user, form);
+      await createPost(user, { ...form, origin });
       setForm(EMPTY);
       onDone();
     } catch (err) {

@@ -10,12 +10,14 @@ import ProfileSetup from "./components/ProfileSetup";
 import Avatar from "./components/Avatar";
 import Recipes from "./components/Recipes";
 import Messages from "./components/Messages";
+import { milesToPost } from "./location";
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
   const [tab, setTab] = useState("board"); // "board", "mine", "pantry", "recipes" or "messages"
   const [filter, setFilter] = useState("all"); // "all", "offer", "request"
+  const [sort, setSort] = useState("newest"); // "newest" or "nearest"
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState(null); // pre-filled post when sharing from the pantry
@@ -96,6 +98,8 @@ export default function App() {
   const complete = profileState === "ready" && isProfileComplete(profile);
   const needsProfile = profileState === "ready" && !complete;
   const showApp = !user || complete;
+  // Where the viewer lives (from their profile), used for "0.3 mi away".
+  const here = complete ? { lat: profile.housingLat, lng: profile.housingLng } : null;
 
   // Pantry "Share" button -> Offer post.
   function shareFromPantry(item) {
@@ -118,10 +122,31 @@ export default function App() {
     if (term && !`${p.item} ${p.location} ${p.notes}`.toLowerCase().includes(term)) return false;
     return true;
   });
+  // "Nearest": closest first; posts with no location go last. (Posts already arrive newest first.)
+  if (sort === "nearest" && here) {
+    const away = (p) => milesToPost(here, p) ?? Infinity;
+    visible.sort((a, b) => away(a) - away(b));
+  }
+
+  const TABS = [
+    { id: "board", label: "Board", icon: "🏠", title: "Board", sub: "What your neighbors are offering and asking for." },
+    { id: "mine", label: "My posts", icon: "📝", title: "My posts", sub: "Posts you made or claimed." },
+    { id: "pantry", label: "Pantry", icon: "🥫", title: "Pantry", sub: "What you have at home. Only you can see this." },
+    { id: "recipes", label: "Recipes", icon: "🍳", title: "Recipes", sub: "Cook with what you have. Borrow the rest." },
+    { id: "messages", label: "Messages", icon: "💬", title: "Messages", sub: "Plan pickups with your neighbors." },
+  ];
+  const page = TABS.find((t) => t.id === activeTab);
+
+  // Sidebar "+ New post": works from any tab by jumping to the board.
+  function toggleNewPost() {
+    if (showForm && onPostsTab) closeForm();
+    else startPost(null);
+  }
 
   return (
-    <div className="app">
-      <header className="header">
+    <div className="layout">
+      {/* ---------- Left column: brand, you, navigation, impact ---------- */}
+      <aside className="sidebar">
         <div className="brand">
           <span className="logo" aria-hidden>🥫</span>
           <div>
@@ -129,99 +154,131 @@ export default function App() {
             <p className="tagline">Borrow a cup of sugar from your neighbors.</p>
           </div>
         </div>
+
         {user ? (
-          <div className="user">
-            {complete && <Avatar name={user.name} photoURL={profile.photoURL || user.photoURL} />}
-            <div className="user-meta">
-              <span>Hi, {user.name.split(" ")[0]}</span>
-              {complete && <span className="muted" title={profile.universityName}>{profile.housingLabel}</span>}
+          <div className="card user-card">
+            <div className="user-card-top">
+              <Avatar name={user.name} photoURL={(complete && profile.photoURL) || user.photoURL} size="md" />
+              <div className="user-card-text">
+                <strong>{user.name}</strong>
+                {complete && <span className="muted" title={profile.universityName}>{profile.housingLabel}</span>}
+              </div>
             </div>
-            {complete && (
-              <button className="btn ghost" onClick={() => setEditing((open) => !open)}>{editing ? "Close" : "Profile"}</button>
-            )}
-            <button className="btn ghost" onClick={signOut}>Sign out</button>
+            <div className="user-card-actions">
+              {complete && (
+                <button className="btn ghost small" onClick={() => setEditing((open) => !open)}>
+                  {editing ? "Close profile" : "Profile"}
+                </button>
+              )}
+              <button className="btn ghost small" onClick={signOut}>Sign out</button>
+            </div>
           </div>
         ) : (
-          <button className="btn primary" onClick={signIn}>Sign in</button>
+          <div className="card user-card">
+            <p className="muted">Sign in to share, request, and message neighbors.</p>
+            <button className="btn primary block" onClick={signIn}>Sign in</button>
+          </div>
         )}
-      </header>
 
-      {isDemoMode && (
-        <div className="demo-banner">
-          Demo mode: data is fake and saved only in this browser. Add Firebase keys to <code>.env.local</code> to go live.{" "}
-          <button className="link" onClick={resetDemoData}>Reset sample data</button>
-        </div>
-      )}
+        {showApp && (
+          <nav className="nav" aria-label="Sections">
+            {TABS.map((t) => (
+              <button key={t.id} className={activeTab === t.id ? "nav-item active" : "nav-item"}
+                aria-current={activeTab === t.id ? "page" : undefined}
+                onClick={() => { setTab(t.id); if (t.id === "messages") setOpenChatId(null); }}
+                disabled={t.id !== "board" && !user}>
+                <span className="nav-icon" aria-hidden>{t.icon}</span>
+                <span className="nav-label">{t.label}</span>
+                {t.id === "messages" && unreadCount > 0 && <span className="tab-count">{unreadCount}</span>}
+              </button>
+            ))}
+          </nav>
+        )}
 
-      {user && profileState !== "ready" && <p className="empty">Loading your profile…</p>}
-      {needsProfile && <ProfileSetup user={user} profile={profile} required onSaved={() => setEditing(false)} />}
-
-      {showApp && <>
-      {editing && <ProfileSetup user={user} profile={profile} onSaved={() => setEditing(false)} />}
-
-      <ImpactBar posts={posts} />
-
-      <div className="toolbar">
-        <div className="tabs" role="tablist">
-          {[["board", "Board"], ["mine", "My posts"], ["pantry", "Pantry"], ["recipes", "Recipes"], ["messages", "Messages"]].map(([t, label]) => (
-            <button key={t} className={activeTab === t ? "tab active" : "tab"}
-              onClick={() => { setTab(t); if (t === "messages") setOpenChatId(null); }}
-              disabled={t !== "board" && !user}>
-              {label}
-              {t === "messages" && unreadCount > 0 && <span className="tab-count">{unreadCount}</span>}
-            </button>
-          ))}
-        </div>
-        {user && onPostsTab && (
-          <button className="btn primary" onClick={() => (showForm ? closeForm() : openForm(null))}>
-            {showForm ? "Close" : "+ New post"}
+        {showApp && user && (
+          <button className="btn primary block new-post" onClick={toggleNewPost}>
+            {showForm && onPostsTab ? "Close form" : "+ New post"}
           </button>
         )}
-      </div>
 
-      {showForm && user && onPostsTab && (
-        <PostForm key={draft ? draft.key : "new"} user={user} posts={posts} initial={draft} onDone={closeForm} />
-      )}
+        {showApp && (
+          <section className="sidebar-section">
+            <h2 className="sidebar-heading">Community impact</h2>
+            <ImpactBar posts={posts} />
+          </section>
+        )}
 
-      {activeTab === "pantry" ? (
-        <Pantry user={user} posts={posts} onShare={shareFromPantry} onMessage={openChat} />
-      ) : activeTab === "recipes" ? (
-        <Recipes user={user} posts={posts} onRequest={requestIngredient} onMessage={openChat} />
-      ) : activeTab === "messages" ? (
-        <Messages user={user} chats={chats} posts={posts} openChatId={openChatId}
-          onOpen={setOpenChatId} onBack={() => setOpenChatId(null)} />
-      ) : (
-      <>
-        <div className="filters">
-          {["all", "offer", "request"].map((f) => (
-            <button key={f} className={filter === f ? "chip active" : "chip"} onClick={() => setFilter(f)}>
-              {f === "all" ? "All" : f === "offer" ? "Offers" : "Requests"}
-            </button>
-          ))}
-          <input
-            className="search"
-            placeholder="Search eggs, rice, Alder Hall…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        <p className="sidebar-note">
+          Only share sealed or fresh food, list allergens in the notes, and meet in public spots.
+        </p>
+      </aside>
 
-        <main className="feed">
-          {!user && !isDemoMode ? (
-            <p className="empty">Sign in to see what your neighbors are sharing.</p>
-          ) : visible.length === 0 ? (
-            <p className="empty">Nothing here yet. Be the first to post!</p>
-          ) : (
-            visible.map((p) => <PostCard key={p.id} post={p} user={user} onMessage={openChat} />)
-          )}
-        </main>
-      </>
-      )}
+      {/* ---------- Right column: the current page ---------- */}
+      <div className="main-col">
+        {isDemoMode && (
+          <div className="demo-banner">
+            Demo mode: data is fake and saved only in this browser. Add Firebase keys to <code>.env.local</code> to go live.{" "}
+            <button className="link" onClick={resetDemoData}>Reset sample data</button>
+          </div>
+        )}
+
+        {user && profileState !== "ready" && <p className="empty">Loading your profile…</p>}
+        {needsProfile && <ProfileSetup user={user} profile={profile} required onSaved={() => setEditing(false)} />}
+
+        {showApp && <>
+        {editing && <ProfileSetup user={user} profile={profile} onSaved={() => setEditing(false)} />}
+
+        <header className="page-head">
+          <h2>{page.title}</h2>
+          <p className="muted">{page.sub}</p>
+        </header>
+
+        {showForm && user && onPostsTab && (
+          <PostForm key={draft ? draft.key : "new"} user={user} posts={posts} origin={here} initial={draft} onDone={closeForm} />
+        )}
+
+        {activeTab === "pantry" ? (
+          <Pantry user={user} posts={posts} onShare={shareFromPantry} onMessage={openChat} />
+        ) : activeTab === "recipes" ? (
+          <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} />
+        ) : activeTab === "messages" ? (
+          <Messages user={user} chats={chats} posts={posts} openChatId={openChatId}
+            onOpen={setOpenChatId} onBack={() => setOpenChatId(null)} />
+        ) : (
+        <>
+          <div className="filters">
+            {["all", "offer", "request"].map((f) => (
+              <button key={f} className={filter === f ? "chip active" : "chip"} onClick={() => setFilter(f)}>
+                {f === "all" ? "All" : f === "offer" ? "Offers" : "Requests"}
+              </button>
+            ))}
+            {here && (
+              <button className="chip" onClick={() => setSort(sort === "newest" ? "nearest" : "newest")}
+                title="Change the order of posts">
+                {sort === "newest" ? "↕ Newest" : "↕ Nearest"}
+              </button>
+            )}
+            <input
+              className="search"
+              placeholder="Search eggs, rice, Alder Hall…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <main className="feed">
+            {!user && !isDemoMode ? (
+              <p className="empty">Sign in to see what your neighbors are sharing.</p>
+            ) : visible.length === 0 ? (
+              <p className="empty">Nothing here yet. Be the first to post!</p>
+            ) : (
+              visible.map((p) => <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} />)
+            )}
+          </main>
+        </>
+        )}
       </>}
-
-      <footer className="footer">
-        Only share sealed or fresh food, list allergens in the notes, and meet in public spots.
-      </footer>
+      </div>
     </div>
   );
 }

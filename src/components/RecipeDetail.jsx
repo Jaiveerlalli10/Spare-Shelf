@@ -2,11 +2,15 @@
 // and who on the board is offering the ones you need.
 import { claimPost } from "../data";
 import { findInPantry, findOffers } from "../matching";
+import { milesToPost, awayLabel } from "../location";
 
-export default function RecipeDetail({ recipe, pantry, posts, user, onBack, onRequest, onMessage }) {
+export default function RecipeDetail({ recipe, pantry, posts, user, here, onBack, onRequest, onMessage }) {
+  // Closest offers first; offers with no location go last.
+  const away = (p) => milesToPost(here, p) ?? Infinity;
   const rows = recipe.ingredients.map((ing) => {
     const owned = findInPantry(ing.name, pantry);
-    return { ...ing, owned, offers: owned ? [] : findOffers(ing.name, posts, user) };
+    const offers = owned ? [] : findOffers(ing.name, posts, user).sort((a, b) => away(a) - away(b));
+    return { ...ing, owned, offers };
   });
   const have = rows.filter((r) => r.owned);
   const need = rows.filter((r) => !r.owned);
@@ -47,6 +51,9 @@ export default function RecipeDetail({ recipe, pantry, posts, user, onBack, onRe
                         <span>
                           <strong>{p.ownerName}</strong> has {p.quantity || "some"} {p.item.toLowerCase()}
                           <span className="muted"> · 📍 {p.location}</span>
+                          {awayLabel(milesToPost(here, p)) && (
+                            <span className="away"> · {awayLabel(milesToPost(here, p))}</span>
+                          )}
                         </span>
                         {p.claimedById === user.uid ? (
                           <span className="offer-claimed">

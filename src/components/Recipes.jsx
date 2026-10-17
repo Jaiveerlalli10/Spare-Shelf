@@ -6,7 +6,7 @@ import { RECIPES, ALL_TAGS } from "../recipes";
 import { findInPantry, activeOffersByPantryItem } from "../matching";
 import RecipeDetail from "./RecipeDetail";
 
-export default function Recipes({ user, posts, onRequest, onMessage }) {
+export default function Recipes({ user, posts, here, onRequest, onMessage }) {
   const [pantry, setPantry] = useState([]);
   const [selectedTags, setSelectedTags] = useState([]);
   const [search, setSearch] = useState("");
@@ -22,7 +22,7 @@ export default function Recipes({ user, posts, onRequest, onMessage }) {
   if (opened) {
     return (
       <RecipeDetail recipe={opened} pantry={available} posts={posts} user={user}
-        onBack={() => setOpenId(null)} onRequest={onRequest} onMessage={onMessage} />
+        here={here} onBack={() => setOpenId(null)} onRequest={onRequest} onMessage={onMessage} />
     );
   }
 
