@@ -10,6 +10,7 @@ import ProfileSetup from "./components/ProfileSetup";
 import Avatar from "./components/Avatar";
 import Recipes from "./components/Recipes";
 import Messages from "./components/Messages";
+import ReviewSheet from "./components/ReviewSheet";
 import { milesToPost } from "./location";
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
   const [editing, setEditing] = useState(false);
   const [chats, setChats] = useState([]);
   const [openChatId, setOpenChatId] = useState(null);
+  const [reviewPost, setReviewPost] = useState(null);
   const uid = user ? user.uid : null;
 
   // Start listening to sign-in state and posts when the page loads.
@@ -35,6 +37,7 @@ export default function App() {
       setProfile(null);
       setProfileState("idle");
       setEditing(false);
+      setReviewPost(null);
       return;
     }
     setProfileState("loading");
@@ -254,7 +257,7 @@ export default function App() {
           <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} />
         ) : activeTab === "messages" ? (
           <Messages user={user} chats={chats} posts={posts} openChatId={openChatId}
-            onOpen={setOpenChatId} onBack={() => setOpenChatId(null)} />
+            onOpen={setOpenChatId} onBack={() => setOpenChatId(null)} onReview={setReviewPost} />
         ) : (
         <>
           <div className="filters">
@@ -283,13 +286,17 @@ export default function App() {
             ) : visible.length === 0 ? (
               <p className="empty">Nothing here yet. Be the first to post!</p>
             ) : (
-              visible.map((p, i) => <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} index={i} />)
+              visible.map((p, i) => <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onReview={setReviewPost} index={i} />)
             )}
           </main>
         </>
         )}
       </>}
       </div>
+
+      {user && reviewPost && (
+        <ReviewSheet key={reviewPost.id} user={user} post={reviewPost} onClose={() => setReviewPost(null)} onSaved={() => setReviewPost(null)} />
+      )}
     </div>
   );
 }

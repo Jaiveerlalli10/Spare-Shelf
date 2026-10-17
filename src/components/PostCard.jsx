@@ -2,6 +2,7 @@
 import { claimPost, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
+import Reputation from "./Reputation";
 import { milesToPost, awayLabel } from "../location";
 import { foodEmoji } from "../foodEmoji";
 
@@ -18,7 +19,7 @@ const firstName = (name) => (name || "").split(" ")[0];
 // `onMessage(post)` opens the chat for a claimed post.
 // `here` is the viewer's housing location, used to show "0.3 mi away".
 // `index` staggers the entrance animation.
-export default function PostCard({ post, user, here, onMessage, index = 0 }) {
+export default function PostCard({ post, user, here, onMessage, onReview, index = 0 }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
@@ -47,7 +48,6 @@ export default function PostCard({ post, user, here, onMessage, index = 0 }) {
       <>
         <span className="status claimed">{isMine ? `${post.claimedByName} is on it` : "You're on it!"}</span>
         {messageButton}
-        <Handoff post={post} user={user} />
       </>
     );
   } else if (post.status === "open") {
@@ -71,6 +71,7 @@ export default function PostCard({ post, user, here, onMessage, index = 0 }) {
         <span className="what">{post.item}</span>
         {post.quantity && <span className="qty"> · {post.quantity}</span>}
       </h2>
+      {!isMine && <Reputation uid={post.ownerId} />}
       <p className="meta">
         📍 {post.location}{away && <> · <span className="away">{away}</span></>} · {timeAgo(post.createdAt)}
         {days !== null && (
@@ -80,7 +81,10 @@ export default function PostCard({ post, user, here, onMessage, index = 0 }) {
         )}
       </p>
       {post.notes && <p className="notes">{post.notes}</p>}
-      <div className="actions">{actions}</div>
+      <div className="actions">
+        {actions}
+        {user && inChat && post.status !== "open" && <Handoff post={post} user={user} onReview={onReview} />}
+      </div>
       </div>
     </article>
   );

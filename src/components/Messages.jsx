@@ -4,6 +4,7 @@ import { shortAgo } from "../dates";
 import { foodEmoji } from "../foodEmoji";
 import { usePeople } from "../usePeople";
 import Avatar from "./Avatar";
+import Reputation from "./Reputation";
 import ChatView from "./ChatView";
 import ErrorBoundary from "./ErrorBoundary";
 
@@ -14,7 +15,7 @@ export function otherPerson(chat, user) {
     : { id: chat.ownerId, name: chat.ownerName };
 }
 
-export default function Messages({ user, chats, posts, openChatId, onOpen, onBack }) {
+export default function Messages({ user, chats, posts, openChatId, onOpen, onBack, onReview }) {
   const people = usePeople(chats.map((c) => otherPerson(c, user).id));
 
   if (openChatId) {
@@ -24,7 +25,7 @@ export default function Messages({ user, chats, posts, openChatId, onOpen, onBac
     return (
       <ErrorBoundary key={chat.id} label="This chat">
         <ChatView user={user} chat={chat} post={posts.find((p) => p.id === chat.postId)}
-          other={other} photoURL={people[other.id]?.photoURL} onBack={onBack} />
+          other={other} photoURL={people[other.id]?.photoURL} onBack={onBack} onReview={onReview} />
       </ErrorBoundary>
     );
   }
@@ -55,7 +56,7 @@ export default function Messages({ user, chats, posts, openChatId, onOpen, onBac
               <span className="dm-badge" aria-hidden>{foodEmoji(chat.item)}</span>
             </span>
             <span className="dm-text">
-              <span className="dm-name">{other.name}</span>
+              <span className="dm-name">{other.name} <Reputation uid={other.id} tagLimit={1} /></span>
               <span className="dm-preview">
                 <span className="dm-snippet">{preview}</span>
                 {chat.lastAt > 0 && <span className="dm-time"> · {shortAgo(chat.lastAt)}</span>}

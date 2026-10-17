@@ -614,3 +614,44 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   max-height: 260px; overflow: auto; margin: 10px 0 12px; padding: 10px 12px; border-radius: 10px;
   background: var(--surface-2); color: var(--warn); font-size: 0.75rem; white-space: pre-wrap; word-break: break-word;
 }
+
+/* ---------- Reviews ---------- */
+.rep { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+.dm-name .rep { display: inline-flex; margin: 0 0 0 6px; vertical-align: middle; }
+.rep-score { color: var(--saffron); font-weight: 800; font-size: 0.78rem; }
+.rep-tag {
+  font-size: 0.7rem; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: var(--saffron-bg); color: var(--saffron);
+}
+.review-backdrop {
+  position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px;
+  background: rgba(0, 0, 0, 0.72);
+}
+.review-sheet { width: min(440px, 100%); max-height: min(90vh, 640px); overflow: auto; margin: 0; padding: 18px; }
+.review-sheet h2 { margin: 0; font-size: 1.45rem; }
+.star-row { display: flex; gap: 4px; margin: 8px 0 4px; }
+.star {
+  width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px; cursor: pointer;
+  background: var(--surface-2); color: #5c5c62; font-size: 1.5rem; line-height: 1;
+}
+.star.on { background: var(--saffron-bg); color: var(--saffron); }
+.review-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.review-tag {
+  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  font-size: 0.86rem; font-weight: 700;
+  animation: pop 0.28s ease both; animation-delay: calc(var(--i, 0) * 40ms);
+}
+.review-tag.on { background: var(--basil-bg); border-color: transparent; color: var(--basil); }
+.review-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.review-note-label { display: block; margin-top: 14px; font-size: 0.82rem; font-weight: 700; color: var(--muted); }
+.review-note-label textarea {
+  display: block; width: 100%; margin-top: 6px; padding: 10px 12px; resize: vertical;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2);
+  font-weight: 500; color: var(--text);
+}
+.review-note-label textarea:focus { outline: none; border-color: var(--basil); box-shadow: 0 0 0 4px var(--basil-bg); }
+.rep-note {
+  flex-basis: 100%; color: var(--muted); font-size: 0.82rem; font-weight: 500; font-style: italic;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}

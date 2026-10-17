@@ -5,11 +5,12 @@ import { chatStamp } from "../dates";
 import { foodEmoji } from "../foodEmoji";
 import Avatar from "./Avatar";
 import Handoff from "./Handoff";
+import Reputation from "./Reputation";
 
 const GAP = 15 * 60 * 1000; // messages more than 15 minutes apart get a timestamp and a new group
 const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
 
-export default function ChatView({ user, chat, post, other, photoURL, onBack }) {
+export default function ChatView({ user, chat, post, other, photoURL, onBack, onReview }) {
   const [messages, setMessages] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
@@ -58,14 +59,14 @@ export default function ChatView({ user, chat, post, other, photoURL, onBack }) 
     strip = null; // not claimed (yet), so there's no hand-off to show
   } else if (post) {
     const { giverName, receiverName } = handoffRoles(post);
-    strip = post.status === "completed" ? (
-      <div className="dm-strip done">🎉 Hand-off complete! {post.item} was added to {receiverName}'s pantry.</div>
-    ) : (
-      <div className="dm-strip">
+    strip = (
+      <div className={post.status === "completed" ? "dm-strip done" : "dm-strip"}>
         <span>
-          <strong>{giverName}</strong> → <strong>{receiverName}</strong> · {post.item}{post.quantity && ` (${post.quantity})`}
+          {post.status === "completed"
+            ? <>🎉 Hand-off complete! {post.item} was added to {receiverName}'s pantry.</>
+            : <><strong>{giverName}</strong> → <strong>{receiverName}</strong> · {post.item}{post.quantity && ` (${post.quantity})`}</>}
         </span>
-        <span className="dm-strip-actions"><Handoff post={post} user={user} /></span>
+        <span className="dm-strip-actions"><Handoff post={post} user={user} onReview={onReview} /></span>
       </div>
     );
   }
@@ -79,6 +80,7 @@ export default function ChatView({ user, chat, post, other, photoURL, onBack }) 
         <Avatar name={other.name} photoURL={photoURL} size={40} />
         <div className="dm-header-text">
           <strong>{other.name}</strong>
+          <Reputation uid={other.id} />
           <span className="muted">{foodEmoji(chat.item)} about {chat.item}{post && ` · 📍 ${post.location}`}</span>
         </div>
       </header>
@@ -90,6 +92,7 @@ export default function ChatView({ user, chat, post, other, photoURL, onBack }) 
         <div className="dm-intro">
           <Avatar name={other.name} photoURL={photoURL} size={88} />
           <strong>{other.name}</strong>
+          <Reputation uid={other.id} showNote />
           <span className="muted">Spare Shelf neighbor · about {chat.item}</span>
           <span className="muted">Say hi and pick a time and place to meet.</span>
         </div>
