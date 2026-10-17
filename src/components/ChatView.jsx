@@ -17,7 +17,8 @@ import { pickupSpot } from "../location";
 const GAP = 15 * 60 * 1000; // messages more than 15 minutes apart get a timestamp and a new group
 const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
 
-export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections }) {
+// `sharing`: whether I'm sharing my live location with this person; `liveOn`: my device location works.
+export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections, sharing, onToggleShare, liveOn }) {
   const [byChat, setByChat] = useState({}); // chat id -> its messages
   const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
@@ -103,6 +104,23 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
       </div>
     );
   });
+  // Live location sharing (opt-in) while a hand-off is active.
+  const iGiveSomething = active.some((p) => handoffRoles(p).giverId === user.uid);
+  const liveBar = active.length > 0 && onToggleShare && (
+    <div className={sharing ? "dm-live on" : "dm-live"}>
+      <span>
+        {sharing
+          ? <>📡 Sharing your live location with <strong>{other.name}</strong> until the hand-off is done.</>
+          : iGiveSomething
+            ? <><strong>{other.name}</strong> is coming to you. Share your live location so they can find you.</>
+            : <>Share your live location with <strong>{other.name}</strong> so you can find each other.</>}
+        {!sharing && !liveOn && <span className="muted"> Turn on location first (see the map).</span>}
+      </span>
+      <button className={sharing ? "btn ghost small" : "btn primary small"} onClick={onToggleShare} disabled={!sharing && !liveOn}>
+        {sharing ? "Stop sharing" : "📡 Share live location"}
+      </button>
+    </div>
+  );
   const topic = active.length ? active.map((p) => p.item).join(", ") : (posts[0] && posts[0].item) || primary.item || "";
 
   return (
@@ -119,6 +137,7 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
       </header>
 
       {strips.length > 0 && <div className="dm-strips">{strips}</div>}
+      {liveBar}
 
       <div className="dm-thread" ref={threadRef}>
         {/* Profile intro at the top of the thread, like Instagram */}

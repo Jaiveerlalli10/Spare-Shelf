@@ -88,6 +88,19 @@ service cloud.firestore {
         allow read: if signedIn() && isMember();
         allow create: if signedIn() && isMemberAfter() && request.resource.data.senderId == request.auth.uid;
       }
+
+      // Live location, shared on purpose during a hand-off. Only the two people in the chat can
+      // see it, and each person can only write or delete their own.
+      match /live/{userId} {
+        function inChat() {
+          return request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+        }
+        allow read: if signedIn() && inChat();
+        allow create, update: if signedIn() && request.auth.uid == userId && inChat()
+          && request.resource.data.keys().hasOnly(["lat", "lng", "accuracy", "updatedAt"])
+          && request.resource.data.lat is number && request.resource.data.lng is number;
+        allow delete: if signedIn() && request.auth.uid == userId;
+      }
     }
   }
 }

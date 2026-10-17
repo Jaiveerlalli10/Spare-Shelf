@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useRef, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -12,6 +12,8 @@ import Recipes from "./components/Recipes";
 import Messages from "./components/Messages";
 import { milesToPost, publicPlaceLabel } from "./location";
 import MapPanel from "./components/MapPanel";
+import { useDeviceLocation } from "./useDeviceLocation";
+import { useLiveSharing } from "./useLiveSharing";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -161,6 +163,44 @@ export default function App() {
 
   const mapTarget = posts.find((p) => p.id === mapTargetId) || null;
 
+  // ---------- Live location ----------
+  // Your device location (the browser asks once the app is ready). Used for directions, and
+  // sent to the people you chose to share it with during a hand-off.
+  const device = useDeviceLocation(Boolean(complete));
+  const shareKey = uid ? `spareShelf.sharingWith.${uid}` : "";
+  const [sharingWith, setSharingWith] = useState([]); // uids I'm sharing my live location with
+  useEffect(() => {
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(shareKey) || "[]"); } catch { /* ignore */ }
+    setSharingWith(Array.isArray(saved) ? saved : []);
+  }, [shareKey]);
+  function saveSharing(list) {
+    setSharingWith(list);
+    try { localStorage.setItem(shareKey, JSON.stringify(list)); } catch { /* ignore */ }
+  }
+  function toggleSharing(otherId) {
+    if (sharingWith.includes(otherId)) {
+      saveSharing(sharingWith.filter((id) => id !== otherId));
+      stopSharingLiveLocation(user, otherId).catch((err) => console.error("Couldn't stop sharing:", err));
+    } else {
+      saveSharing([...sharingWith, otherId]);
+    }
+  }
+  // People I have an active (claimed) hand-off with. Sharing stops automatically once there's none.
+  const partners = new Set(
+    posts.filter((p) => p.status === "claimed" && (p.ownerId === uid || p.claimedById === uid))
+      .map((p) => (p.ownerId === uid ? p.claimedById : p.ownerId))
+  );
+  const partnersKey = [...partners].sort().join(",");
+  useEffect(() => {
+    if (!user || posts.length === 0) return; // wait until posts have loaded
+    const done = sharingWith.filter((id) => !partners.has(id));
+    if (done.length === 0) return;
+    done.forEach((id) => stopSharingLiveLocation(user, id).catch(() => {}));
+    saveSharing(sharingWith.filter((id) => partners.has(id)));
+  }, [partnersKey, sharingWith.join(","), posts.length]);
+  useLiveSharing(user, device.pos, sharingWith);
+
   // "🧭 Directions" buttons: select the post on the map. On narrow screens the map sits
   // above the page content, so scroll up to it.
   function showDirections(post) {
@@ -291,7 +331,8 @@ export default function App() {
           <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} />
         ) : activeTab === "messages" ? (
           <Messages user={user} chats={chats} posts={posts} openWith={openChatWith}
-            onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} onDirections={showDirections} />
+            onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} onDirections={showDirections}
+            sharingWith={sharingWith} onToggleShare={toggleSharing} liveOn={device.status === "on"} />
         ) : (
         <>
           <div className="filters">
@@ -332,7 +373,7 @@ export default function App() {
 
       {/* ---------- Right column: map + directions ---------- */}
       {showApp && (
-        <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} posts={posts} user={user} target={mapTarget}
+        <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} device={device} posts={posts} user={user} target={mapTarget}
           onSelect={(post) => setMapTargetId(post.id)} onClear={() => setMapTargetId(null)} />
       )}
     </div>

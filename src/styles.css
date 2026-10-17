@@ -525,6 +525,12 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 }
 .dm-strip.done { background: var(--basil-bg); font-weight: 600; }
 .dm-strips { max-height: 34%; overflow-y: auto; flex-shrink: 0; }
+.dm-live {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  padding: 8px 16px; font-size: 0.85rem; background: var(--sky-bg); border-bottom: 1px solid var(--border);
+}
+.dm-live.on { background: #1d1230; }
+.dm-live.on strong { color: #c58bff; }
 .dm-strips .dm-strip + .dm-strip { border-top: 1px solid var(--border); }
 .dm-strip-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dm-strip .btn { padding: 5px 12px; font-size: 0.84rem; }
@@ -703,6 +709,13 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
   background: #1d1230; border: 3px solid #a334fa; font-size: 0.9rem;
   box-shadow: 0 0 0 6px rgba(163, 52, 250, 0.25);
+}
+
+/* The giver's live location at the end of a route: pulsing purple */
+.map-dest.live span { animation: pulse-purple 2s ease-out infinite; }
+@keyframes pulse-purple {
+  0% { box-shadow: 0 0 0 0 rgba(163, 52, 250, 0.6); }
+  100% { box-shadow: 0 0 0 18px rgba(163, 52, 250, 0); }
 }
 
 /* Directions card under the map */

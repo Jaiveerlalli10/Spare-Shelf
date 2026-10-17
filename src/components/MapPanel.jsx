@@ -6,7 +6,7 @@ import "leaflet/dist/leaflet.css";
 import { foodEmoji } from "../foodEmoji";
 import { walkingRoute, stepText, formatWalkDistance } from "../directions";
 import { pickupSpot, noTripReason } from "../location";
-import { useDeviceLocation } from "../useDeviceLocation";
+import { handoffRoles, pairId, watchLiveLocation, LIVE_FRESH_MS } from "../data";
 
 const CAMPUS = [47.6553, -122.3035]; // fallback center: UW Seattle
 // Standard OpenStreetMap tiles (free, no key). They're darkened with a CSS filter (.leaflet-tile-pane in styles.css).
@@ -21,9 +21,10 @@ const hasSpot = (p) => p && Number.isFinite(p.approxLat) && Number.isFinite(p.ap
 const REROUTE_METERS = 50; // walk this far from where the route started before it re-routes
 
 // `here`: your housing { lat, lng } from your profile (or null), with `homeLabel` its name.
-// `target`: the selected post (or null).
-// Directions start from the device's live location when the browser allows it, otherwise from `here`.
-export default function MapPanel({ here, homeLabel, posts, user, target, onSelect, onClear }) {
+// `device`: your live device location (from useDeviceLocation in App). `target`: the selected post (or null).
+// Directions start from your live location when the browser allows it, otherwise from `here`,
+// and go to the giver's shared live location when they share it, otherwise to their area.
+export default function MapPanel({ here, homeLabel, device, posts, user, target, onSelect, onClear }) {
   const boxRef = useRef(null);
   const mapRef = useRef(null);
   const pinsRef = useRef(null);
@@ -36,8 +37,6 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
   const [routeState, setRouteState] = useState("idle"); // idle | loading | ready
   const [showSteps, setShowSteps] = useState(false);
 
-  // Live device location: the browser asks for permission as soon as the map loads.
-  const device = useDeviceLocation(true);
   const origin = device.pos
     ? { lat: device.pos.lat, lng: device.pos.lng, accuracy: device.pos.accuracy, live: true }
     : here ? { lat: here.lat, lng: here.lng, live: false } : null;
@@ -136,6 +135,35 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
 
   // Walking directions from you to wherever you pick the food up (see pickupSpot in location.js).
   const dest = target ? pickupSpot(target, user) : null;
+
+  // The giver's live location, if they chose to share it with you (active hand-off only).
+  const giverId = target && dest && target.status === "claimed" ? handoffRoles(target).giverId : null;
+  const [giverLive, setGiverLive] = useState(null);
+  useEffect(() => {
+    setGiverLive(null);
+    if (!giverId || !user) return;
+    return watchLiveLocation(pairId(user.uid, giverId), giverId, setGiverLive);
+  }, [giverId, user?.uid]);
+  const [now, setNow] = useState(Date.now()); // ticks so "updated 20s ago" and staleness stay current
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 10000);
+    return () => clearInterval(id);
+  }, []);
+  const liveFresh = giverLive && now - giverLive.updatedAt < LIVE_FRESH_MS;
+  const goal = dest && liveFresh
+    ? { lat: giverLive.lat, lng: giverLive.lng, live: true, updatedAt: giverLive.updatedAt }
+    : dest ? { lat: dest.lat, lng: dest.lng, live: false } : null;
+
+  // Where the route ends; like routeFrom, only moves after REROUTE_METERS so it doesn't jitter.
+  const [routeTo, setRouteTo] = useState(null);
+  useEffect(() => {
+    if (!goal) { setRouteTo(null); return; }
+    setRouteTo((prev) => {
+      const moved = prev ? L.latLng(prev.lat, prev.lng).distanceTo([goal.lat, goal.lng]) : Infinity;
+      if (prev && prev.live === goal.live && moved < REROUTE_METERS) return prev;
+      return { lat: goal.lat, lng: goal.lng, live: goal.live };
+    });
+  }, [goal?.lat, goal?.lng, goal?.live]);
   const fittedFor = useRef(null);
   useEffect(() => { if (!target) fittedFor.current = null; }, [target?.id]);
   useEffect(() => {
@@ -149,26 +177,27 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
       setRouteState("idle");
       return;
     }
-    if (!routeFrom || !dest) {
+    if (!routeFrom || !dest || !routeTo) {
       // No trip for you: just show where the post is.
       setRouteState("idle");
       if (hasSpot(target)) map.setView([target.approxLat, target.approxLng], Math.max(map.getZoom(), 16));
       return;
     }
-    const to = { lat: dest.lat, lng: dest.lng };
+    const to = { lat: routeTo.lat, lng: routeTo.lng };
 
     // Mark the pickup spot (for requests it's the helper's place, which has no post pin).
     const endMarker = L.marker([to.lat, to.lng], {
-      icon: L.divIcon({ className: "map-dest", html: "<span>🤝</span>", iconSize: [30, 30] }),
-      title: `Pick up from ${dest.name}`,
+      icon: L.divIcon({ className: routeTo.live ? "map-dest live" : "map-dest", html: "<span>🤝</span>", iconSize: [30, 30] }),
+      title: routeTo.live ? `${dest.name} (live location)` : `Pick up from ${dest.name}`,
       zIndexOffset: 950,
     });
     const from = routeFrom;
     const draw = (layers) => {
       routeRef.current = L.featureGroup([...layers, endMarker]).addTo(map);
       // Zoom to the whole route when it's a new destination, not on every re-route while walking.
-      if (fittedFor.current !== target.id) {
-        fittedFor.current = target.id;
+      const fitKey = `${target.id}:${routeTo.live}`;
+      if (fittedFor.current !== fitKey) {
+        fittedFor.current = fitKey;
         map.fitBounds(routeRef.current.getBounds(), { padding: [48, 48], maxZoom: 17 });
       }
     };
@@ -193,7 +222,7 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
         setRouteState("ready");
       });
     return () => ctrl.abort();
-  }, [target?.id, dest?.lat, dest?.lng, routeFrom?.lat, routeFrom?.lng]);
+  }, [target?.id, Boolean(dest), routeTo?.lat, routeTo?.lng, routeTo?.live, routeFrom?.lat, routeFrom?.lng]);
 
   return (
     <aside className="map-panel" id="map-panel" aria-label="Map and directions">
@@ -226,7 +255,9 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
               <strong>
                 {user && target.ownerId === user.uid ? "Your post" : target.ownerName} · {target.item}
               </strong>
-              <span className="muted">📍 {dest ? `Pick up from ${dest.label}` : target.location}</span>
+              <span className="muted">
+                📍 {goal && goal.live ? `Meet ${dest.name} where they are` : dest ? `Pick up from ${dest.label}` : target.location}
+              </span>
             </div>
             <button className="map-close" onClick={onClear} aria-label="Close directions">×</button>
           </div>
@@ -241,6 +272,20 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
 
             </p>
           )}
+          {dest && origin && (
+            <p className="map-from">
+              {goal && goal.live ? (
+                <>📡 To {dest.name}'s live location <span className="muted">(updated {agoText(now - goal.updatedAt)})</span></>
+              ) : (
+                <>
+                  🏠 To {dest.name}'s area
+                  {target.status === "claimed" && (
+                    <span className="muted"> · They aren't sharing their live location. Ask them in chat to tap "Share live location".</span>
+                  )}
+                </>
+              )}
+            </p>
+          )}
           {routeState === "loading" && <p className="muted">Finding a walking route…</p>}
 
           {route && (
@@ -250,7 +295,9 @@ export default function MapPanel({ here, homeLabel, posts, user, target, onSelec
                 <span><b>{formatWalkDistance(route.distance)}</b></span>
               </div>
               {route.straight && <p className="muted">Couldn't get street directions, so this is a straight line.</p>}
-              <p className="muted map-approx">The pickup spot is approximate (about a block). Confirm the exact spot in chat.</p>
+              {!(goal && goal.live) && (
+                <p className="muted map-approx">The pickup spot is approximate (about a block). Confirm the exact spot in chat.</p>
+              )}
               {route.steps.length > 0 && (
                 <button className="link" onClick={() => setShowSteps(!showSteps)}>
                   {showSteps ? "Hide steps" : `Show ${route.steps.length} steps`}
@@ -316,4 +363,9 @@ function LocationNotice({ device }) {
       {canRetry && <button className="btn small primary" onClick={device.retry}>Try again</button>}
     </div>
   );
+}
+
+function agoText(ms) {
+  const sec = Math.max(1, Math.round(ms / 1000));
+  return sec < 60 ? `${sec}s ago` : `${Math.round(sec / 60)} min ago`;
 }
