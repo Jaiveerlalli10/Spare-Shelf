@@ -1,21 +1,24 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useState } from "react";
-import { watchUser, watchPosts, signIn, signOut, isDemoMode, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchChats, ensureChat, isUnread, signIn, signOut, isDemoMode, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
 import Pantry from "./components/Pantry";
 import Recipes from "./components/Recipes";
+import Messages from "./components/Messages";
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
-  const [tab, setTab] = useState("board"); // "board", "mine" or "pantry"
+  const [tab, setTab] = useState("board"); // "board", "mine", "pantry", "recipes" or "messages"
   const [filter, setFilter] = useState("all"); // "all", "offer", "request"
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState(null); // pre-filled post when sharing from the pantry
+  const [chats, setChats] = useState([]);
+  const [openChatId, setOpenChatId] = useState(null);
 
   // Start listening to sign-in state and posts when the page loads.
   useEffect(() => watchUser(setUser), []);
@@ -28,6 +31,29 @@ export default function App() {
     }
     return watchPosts(setPosts);
   }, [uid]);
+
+  // Chats belong to a user, so only listen while someone is signed in.
+  useEffect(() => {
+    if (!user) {
+      setChats([]);
+      setOpenChatId(null);
+      return;
+    }
+    return watchChats(user, setChats);
+  }, [uid]);
+  const unreadCount = user ? chats.filter((c) => isUnread(c, user)).length : 0;
+
+  // "Message" buttons: make sure the chat exists, then open it on the Messages tab.
+  async function openChat(post) {
+    try {
+      await ensureChat(post);
+      setOpenChatId(post.id);
+      setTab("messages");
+      window.scrollTo({ top: 0 });
+    } catch (err) {
+      alert("Couldn't open the chat: " + err.message + " (were the latest Firestore rules published?)");
+    }
+  }
 
   // Every tab except the board needs a signed-in user; fall back to the board otherwise.
   const activeTab = user ? tab : "board";
@@ -102,10 +128,12 @@ export default function App() {
 
       <div className="toolbar">
         <div className="tabs" role="tablist">
-          {[["board", "Board"], ["mine", "My posts"], ["pantry", "Pantry"], ["recipes", "Recipes"]].map(([t, label]) => (
-            <button key={t} className={activeTab === t ? "tab active" : "tab"} onClick={() => setTab(t)}
+          {[["board", "Board"], ["mine", "My posts"], ["pantry", "Pantry"], ["recipes", "Recipes"], ["messages", "Messages"]].map(([t, label]) => (
+            <button key={t} className={activeTab === t ? "tab active" : "tab"}
+              onClick={() => { setTab(t); if (t === "messages") setOpenChatId(null); }}
               disabled={t !== "board" && !user}>
               {label}
+              {t === "messages" && unreadCount > 0 && <span className="tab-count">{unreadCount}</span>}
             </button>
           ))}
         </div>
@@ -121,9 +149,12 @@ export default function App() {
       )}
 
       {activeTab === "pantry" ? (
-        <Pantry user={user} posts={posts} onShare={shareFromPantry} />
+        <Pantry user={user} posts={posts} onShare={shareFromPantry} onMessage={openChat} />
       ) : activeTab === "recipes" ? (
-        <Recipes user={user} posts={posts} onRequest={requestIngredient} />
+        <Recipes user={user} posts={posts} onRequest={requestIngredient} onMessage={openChat} />
+      ) : activeTab === "messages" ? (
+        <Messages user={user} chats={chats} posts={posts} openChatId={openChatId}
+          onOpen={setOpenChatId} onBack={() => setOpenChatId(null)} />
       ) : (
       <>
         <div className="filters">
@@ -146,7 +177,7 @@ export default function App() {
           ) : visible.length === 0 ? (
             <p className="empty">Nothing here yet. Be the first to post!</p>
           ) : (
-            visible.map((p) => <PostCard key={p.id} post={p} user={user} />)
+            visible.map((p) => <PostCard key={p.id} post={p} user={user} onMessage={openChat} />)
           )}
         </main>
       </>

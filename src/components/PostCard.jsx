@@ -1,6 +1,7 @@
 // One post on the board, plus the buttons that make sense for whoever is looking at it.
-import { claimPost, completePost, deletePost } from "../data";
+import { claimPost, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
+import Handoff from "./Handoff";
 
 function timeAgo(ms) {
   const mins = Math.round((Date.now() - ms) / 60000);
@@ -10,24 +11,38 @@ function timeAgo(ms) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-export default function PostCard({ post, user }) {
+const firstName = (name) => (name || "").split(" ")[0];
+
+// `onMessage(post)` opens the chat for a claimed post.
+export default function PostCard({ post, user, onMessage }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
   const days = daysUntil(post.expiresOn);
+  const inChat = isMine || claimedByMe; // the two people in this hand-off
+  const otherName = isMine ? post.claimedByName : post.ownerName;
+  const messageButton = (
+    <button className="btn ghost" onClick={() => onMessage(post)}>💬 Message {firstName(otherName)}</button>
+  );
 
   let actions;
   if (post.status === "completed") {
-    actions = <span className="status done">Shared ✓</span>;
+    actions = (
+      <>
+        <span className="status done">Shared ✓</span>
+        {user && inChat && messageButton}
+      </>
+    );
   } else if (!user) {
     actions = <span className="muted">Sign in to respond</span>;
   } else if (isMine && post.status === "open") {
     actions = <button className="btn ghost" onClick={() => deletePost(post)}>Delete</button>;
-  } else if (isMine && post.status === "claimed") {
+  } else if (inChat && post.status === "claimed") {
     actions = (
       <>
-        <span className="muted">{post.claimedByName} responded{post.claimedByEmail && ` · ${post.claimedByEmail}`}</span>
-        <button className="btn primary" onClick={() => completePost(post)}>Mark completed</button>
+        <span className="status claimed">{isMine ? `${post.claimedByName} is on it` : "You're on it!"}</span>
+        {messageButton}
+        <Handoff post={post} user={user} />
       </>
     );
   } else if (post.status === "open") {
@@ -36,8 +51,6 @@ export default function PostCard({ post, user }) {
         {isOffer ? "I'll take it" : "I can help"}
       </button>
     );
-  } else if (claimedByMe) {
-    actions = <span className="status claimed">You're on it! Contact {post.ownerName}{post.ownerEmail && `: ${post.ownerEmail}`}</span>;
   } else {
     actions = <span className="status claimed">Someone's on it</span>;
   }

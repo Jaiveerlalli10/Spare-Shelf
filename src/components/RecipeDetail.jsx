@@ -3,7 +3,7 @@
 import { claimPost } from "../data";
 import { findInPantry, findOffers } from "../matching";
 
-export default function RecipeDetail({ recipe, pantry, posts, user, onBack, onRequest }) {
+export default function RecipeDetail({ recipe, pantry, posts, user, onBack, onRequest, onMessage }) {
   const rows = recipe.ingredients.map((ing) => {
     const owned = findInPantry(ing.name, pantry);
     return { ...ing, owned, offers: owned ? [] : findOffers(ing.name, posts, user) };
@@ -49,7 +49,10 @@ export default function RecipeDetail({ recipe, pantry, posts, user, onBack, onRe
                           <span className="muted"> · 📍 {p.location}</span>
                         </span>
                         {p.claimedById === user.uid ? (
-                          <span className="status claimed">You're on it{p.ownerEmail && ` · ${p.ownerEmail}`}</span>
+                          <span className="offer-claimed">
+                            <span className="status claimed">You're on it</span>
+                            <button className="btn ghost small" onClick={() => onMessage(p)}>💬 Message</button>
+                          </span>
                         ) : (
                           <button className="btn primary small" onClick={() => claimPost(user, p)}>I'll take it</button>
                         )}

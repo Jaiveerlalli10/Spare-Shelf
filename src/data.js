@@ -10,12 +10,17 @@
 //   status: "open" | "claimed" | "completed",
 //   claimedById, claimedByName, claimedByEmail,
 //   pantryItemId: for offers, the exact pantry entry being given away ("" if none),
+//   ownerConfirmed, claimerConfirmed: true once each side confirms the hand-off,
 //   createdAt: number (milliseconds)
 // }
+// A post becomes "completed" only when BOTH sides have confirmed.
 
 import { firebaseReady, auth, db } from "./firebase";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import {
+  addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, runTransaction,
+  setDoc, updateDoc, where, writeBatch,
+} from "firebase/firestore";
 
 export const isDemoMode = !firebaseReady;
 
@@ -87,33 +92,69 @@ export async function createPost(user, fields) {
     claimedByName: "",
     claimedByEmail: "",
     pantryItemId,
+    ownerConfirmed: false,
+    claimerConfirmed: false,
     createdAt: Date.now(),
   };
   if (!isDemoMode) return addDoc(collection(db, "posts"), post);
   demo.addPost(post);
 }
 
-/** Someone says "I can help" (on a request) or "I'll take it" (on an offer). */
+/** Someone says "I can help" (on a request) or "I'll take it" (on an offer). Also opens a chat between the two. */
 export async function claimPost(user, post) {
   const changes = { status: "claimed", claimedById: user.uid, claimedByName: user.name, claimedByEmail: user.email };
-  if (!isDemoMode) return updateDoc(doc(db, "posts", post.id), changes);
-  demo.updatePost(post.id, changes);
+  if (!isDemoMode) await updateDoc(doc(db, "posts", post.id), changes);
+  else demo.updatePost(post.id, changes);
+  await ensureChat({ ...post, ...changes });
+}
+
+// ---------- Hand-off (both sides confirm) ----------
+
+/** Who gives and who receives. On an offer the poster gives; on a request the poster receives. */
+export function handoffRoles(post) {
+  const ownerGives = post.type === "offer";
+  return {
+    giverId: ownerGives ? post.ownerId : post.claimedById,
+    giverName: ownerGives ? post.ownerName : post.claimedByName,
+    receiverId: ownerGives ? post.claimedById : post.ownerId,
+    receiverName: ownerGives ? post.claimedByName : post.ownerName,
+  };
 }
 
 /**
- * The owner confirms the hand-off happened. This is what counts toward the impact stats.
- * For an offer, the linked pantry entry is removed, because it's been given away.
+ * One side confirms the hand-off ("I handed it off" / "I got it").
+ * When both have confirmed, the post becomes "completed" and counts toward the impact stats.
+ * Each person's own pantry updates when they confirm: the giver's linked entry is removed,
+ * and the item is added to the receiver's pantry.
  */
-export async function completePost(post) {
-  if (!isDemoMode) await updateDoc(doc(db, "posts", post.id), { status: "completed" });
-  else demo.updatePost(post.id, { status: "completed" });
+export async function confirmHandoff(user, post) {
+  const isOwner = user.uid === post.ownerId;
+  const myField = isOwner ? "ownerConfirmed" : "claimerConfirmed";
+  const otherField = isOwner ? "claimerConfirmed" : "ownerConfirmed";
 
-  if (post.type === "offer" && post.pantryItemId) {
-    try {
-      await removePantryItem({ uid: post.ownerId }, { id: post.pantryItemId });
-    } catch (err) {
-      console.error("Completed, but couldn't remove it from your pantry:", err);
+  if (!isDemoMode) {
+    // A transaction so that if both people tap at the same moment, the post still ends up completed.
+    await runTransaction(db, async (tx) => {
+      const ref = doc(db, "posts", post.id);
+      const snap = await tx.get(ref);
+      if (!snap.exists()) throw new Error("This post was deleted.");
+      const otherDone = snap.data()[otherField] === true;
+      tx.update(ref, { [myField]: true, status: otherDone ? "completed" : "claimed" });
+    });
+  } else {
+    demo.confirm(post.id, myField, otherField);
+  }
+
+  const { giverId, receiverId } = handoffRoles(post);
+  try {
+    if (user.uid === giverId && post.type === "offer" && post.pantryItemId) {
+      await removePantryItem(user, { id: post.pantryItemId });
     }
+    if (user.uid === receiverId) {
+      await addPantryItem(user, { name: post.item, quantity: post.quantity, expiresOn: post.expiresOn });
+    }
+  } catch (err) {
+    console.error("Confirmed, but couldn't update your pantry:", err);
   }
 }
 
@@ -158,6 +199,86 @@ export async function addPantryItem(user, fields) {
 export async function removePantryItem(user, item) {
   if (!isDemoMode) return deleteDoc(doc(db, "users", user.uid, "pantry", item.id));
   demo.removePantryItem(item.id);
+}
+
+// ---------- Messages ----------
+//
+// One chat per claimed post, stored at chats/{postId}:
+// { postId, item, ownerId, ownerName, claimerId, claimerName, members: [ownerId, claimerId],
+//   lastMessage, lastAt, lastSenderId, lastRead: { [uid]: milliseconds } }
+// Messages live at chats/{postId}/messages/{id}: { senderId, senderName, text, createdAt }
+
+function chatInfo(post) {
+  return {
+    postId: post.id, item: post.item,
+    ownerId: post.ownerId, ownerName: post.ownerName,
+    claimerId: post.claimedById, claimerName: post.claimedByName,
+    members: [post.ownerId, post.claimedById],
+  };
+}
+
+/** Makes sure the chat for this claimed post exists (safe to call more than once). */
+export async function ensureChat(post) {
+  if (!isDemoMode) return setDoc(doc(db, "chats", post.id), chatInfo(post), { merge: true });
+  demo.ensureChat(chatInfo(post));
+}
+
+const byLatest = (chats) => chats.sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
+
+/** Calls callback(listOfChats) with every chat this user is in, most recent first. */
+export function watchChats(user, callback) {
+  if (!isDemoMode) {
+    const q = query(collection(db, "chats"), where("members", "array-contains", user.uid));
+    return onSnapshot(
+      q,
+      (snap) => callback(byLatest(snap.docs.map((d) => ({ id: d.id, ...d.data() })))),
+      (err) => console.error("Couldn't load chats (check Firestore rules):", err)
+    );
+  }
+  const send = () => callback(byLatest(demo.getChats().filter((c) => c.members.includes(user.uid))));
+  send();
+  return demo.on("chats", send);
+}
+
+/** Calls callback(listOfMessages) for one chat, oldest first. */
+export function watchMessages(chatId, callback) {
+  if (!isDemoMode) {
+    const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt"));
+    return onSnapshot(
+      q,
+      (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("Couldn't load messages (check Firestore rules):", err)
+    );
+  }
+  const send = () => callback(demo.getMessages(chatId));
+  send();
+  return demo.on("chats", send);
+}
+
+export async function sendMessage(user, chat, text) {
+  const msg = { senderId: user.uid, senderName: user.name, text: text.trim(), createdAt: Date.now() };
+  if (!isDemoMode) {
+    // Save the message and update the chat's preview together.
+    const batch = writeBatch(db);
+    batch.set(doc(collection(db, "chats", chat.id, "messages")), msg);
+    batch.update(doc(db, "chats", chat.id), {
+      lastMessage: msg.text, lastAt: msg.createdAt, lastSenderId: user.uid, [`lastRead.${user.uid}`]: msg.createdAt,
+    });
+    return batch.commit();
+  }
+  demo.addMessage(chat.id, msg);
+  demo.fakeReplyOnce(chat, user);
+}
+
+export async function markChatRead(user, chat) {
+  if (!isDemoMode) return updateDoc(doc(db, "chats", chat.id), { [`lastRead.${user.uid}`]: Date.now() });
+  demo.markRead(chat.id, user.uid);
+}
+
+/** True if the other person sent something this user hasn't seen yet. */
+export function isUnread(chat, user) {
+  const seen = (chat.lastRead || {})[user.uid] || 0;
+  return Boolean(chat.lastSenderId) && chat.lastSenderId !== user.uid && (chat.lastAt || 0) > seen;
 }
 
 // ---------- Demo mode (fake data saved in this browser) ----------
@@ -205,7 +326,7 @@ function seedPantry() {
 }
 
 const demo = (() => {
-  const listeners = { user: new Set(), posts: new Set(), pantry: new Set() };
+  const listeners = { user: new Set(), posts: new Set(), pantry: new Set(), chats: new Set() };
   const load = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   };
@@ -219,6 +340,22 @@ const demo = (() => {
   const setPosts = (next) => { posts = next; save("spareShelf.posts", posts); emit("posts"); };
   let pantry = load("spareShelf.pantry", null) || seedPantry();
   const setPantry = (next) => { pantry = next; save("spareShelf.pantry", pantry); emit("pantry"); };
+  let chats = load("spareShelf.chats", []);
+  let messages = load("spareShelf.messages", {});
+  const saveChats = () => { save("spareShelf.chats", chats); save("spareShelf.messages", messages); emit("chats"); };
+  const updateChat = (id, fn) => { chats = chats.map((c) => (c.id === id ? fn(c) : c)); };
+  const addMessage = (chatId, msg) => {
+    messages = { ...messages, [chatId]: [...(messages[chatId] || []), { ...msg, id: "m" + Date.now() + Math.random() }] };
+    updateChat(chatId, (c) => ({
+      ...c, lastMessage: msg.text, lastAt: msg.createdAt, lastSenderId: msg.senderId,
+      lastRead: { ...c.lastRead, [msg.senderId]: msg.createdAt },
+    }));
+    saveChats();
+  };
+  // In demo mode the other person is fake, so they "reply" and "confirm" on their own.
+  const otherPerson = (chat, user) => chat.ownerId === user.uid
+    ? { id: chat.claimerId, name: chat.claimerName }
+    : { id: chat.ownerId, name: chat.ownerName };
 
   return {
     on(kind, fn) { listeners[kind].add(fn); return () => listeners[kind].delete(fn); },
@@ -235,6 +372,41 @@ const demo = (() => {
       return id;
     },
     removePantryItem(id) { setPantry(pantry.filter((i) => i.id !== id)); },
+
+    getChats: () => [...chats],
+    getMessages: (id) => [...(messages[id] || [])],
+    ensureChat(info) {
+      const exists = chats.some((c) => c.id === info.postId);
+      if (exists) updateChat(info.postId, (c) => ({ ...c, ...info }));
+      else chats = [...chats, { id: info.postId, lastMessage: "", lastAt: 0, lastSenderId: "", lastRead: {}, ...info }];
+      saveChats();
+    },
+    addMessage,
+    markRead(chatId, uid) {
+      updateChat(chatId, (c) => ({ ...c, lastRead: { ...c.lastRead, [uid]: Date.now() } }));
+      saveChats();
+    },
+    fakeReplyOnce(chat, user) {
+      const mine = (messages[chat.id] || []).filter((m) => m.senderId === user.uid);
+      if (mine.length !== 1) return;
+      const other = otherPerson(chat, user);
+      setTimeout(() => addMessage(chat.id, {
+        senderId: other.id, senderName: other.name, text: "Sounds good! See you there 🙂", createdAt: Date.now(),
+      }), 1500);
+    },
+    confirm(postId, myField, otherField) {
+      const post = posts.find((p) => p.id === postId);
+      if (!post) return;
+      const otherDone = post[otherField] === true;
+      setPosts(posts.map((p) => (p.id === postId ? { ...p, [myField]: true, status: otherDone ? "completed" : "claimed" } : p)));
+      if (otherDone) return;
+      setTimeout(() => {
+        setPosts(posts.map((p) => (p.id === postId ? { ...p, [otherField]: true, status: "completed" } : p)));
+        const chat = chats.find((c) => c.id === postId);
+        const other = chat && otherPerson(chat, user);
+        if (other) addMessage(postId, { senderId: other.id, senderName: other.name, text: "Confirmed on my end too. Thanks! 🙏", createdAt: Date.now() });
+      }, 2000);
+    },
   };
 })();
 
@@ -243,6 +415,8 @@ export function resetDemoData() {
   try {
     localStorage.removeItem("spareShelf.posts");
     localStorage.removeItem("spareShelf.pantry");
+    localStorage.removeItem("spareShelf.chats");
+    localStorage.removeItem("spareShelf.messages");
   } catch { /* ignore */ }
   window.location.reload();
 }

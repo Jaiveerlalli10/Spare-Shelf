@@ -9,7 +9,7 @@ import { activeOffersByPantryItem } from "../matching";
 const EMPTY = { name: "", quantity: "", expiresOn: "" };
 const SOON_DAYS = 2; // "expiring soon" = within this many days
 
-export default function Pantry({ user, posts, onShare }) {
+export default function Pantry({ user, posts, onShare, onMessage }) {
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState("");
@@ -100,11 +100,14 @@ export default function Pantry({ user, posts, onShare }) {
                     {item.quantity && <span className="qty"> · {item.quantity}</span>}
                     <div className="offer-status">
                       {offer.status === "claimed"
-                        ? `🤝 ${offer.claimedByName} is picking this up${offer.claimedByEmail ? ` · ${offer.claimedByEmail}` : ""}`
+                        ? `🤝 ${offer.claimedByName} is picking this up`
                         : `Offered for pickup at ${offer.location}`}
                     </div>
                   </div>
                   <div className="pantry-actions">
+                    {offer.status === "claimed" && (
+                      <button className="btn ghost" onClick={() => onMessage(offer)}>💬 Message</button>
+                    )}
                     <button className="btn ghost" onClick={() => useUp(item, offer)}>Used up</button>
                   </div>
                 </li>
