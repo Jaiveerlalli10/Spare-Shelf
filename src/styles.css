@@ -98,10 +98,6 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 .post.offer { border-left: 4px solid var(--offer); }
 .post.request { border-left: 4px solid var(--request); }
-.post-top { display: flex; justify-content: space-between; font-size: 0.8rem; }
-.badge { padding: 2px 8px; border-radius: 999px; font-weight: 600; }
-.badge.offer { background: var(--offer-bg); color: var(--offer); }
-.badge.request { background: var(--request-bg); color: var(--request); }
 .post h2 { margin: 6px 0 2px; font-size: 1.15rem; }
 .qty { font-weight: 400; color: var(--muted); }
 .meta { margin: 0; color: var(--muted); font-size: 0.9rem; }
@@ -240,3 +236,11 @@ button, input, textarea { font: inherit; color: inherit; }
   border: 1px solid var(--border); background: var(--surface);
 }
 .offer-claimed { display: flex; align-items: center; gap: 6px; }
+
+/* Post headline: "Name is requesting Item" */
+.post h2.post-headline { margin: 0 0 4px; font-size: 1.05rem; font-weight: 400; line-height: 1.35; }
+.post-headline .who { font-weight: 600; }
+.post-headline .verb { font-weight: 600; }
+.post-headline .verb.offer { color: var(--offer); }
+.post-headline .verb.request { color: var(--request); }
+.post-headline .what { font-weight: 700; font-size: 1.15rem; }
