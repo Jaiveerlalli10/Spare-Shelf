@@ -57,16 +57,15 @@ export default function PostCard({ post, user, onMessage }) {
 
   return (
     <article className={`card post ${post.type}`}>
-      <div className="post-top">
-        <span className={`badge ${post.type}`}>{isOffer ? "Offering" : "Requesting"}</span>
-        <span className="muted">{timeAgo(post.createdAt)}</span>
-      </div>
-      <h2>
-        {post.item}
+      {/* Reads as a sentence: "Lucas is requesting Sugar · 1 cup" */}
+      <h2 className="post-headline">
+        <span className="who">{isMine ? "You're" : `${post.ownerName} is`}</span>{" "}
+        <span className={`verb ${post.type}`}>{isOffer ? "offering" : "requesting"}</span>{" "}
+        <span className="what">{post.item}</span>
         {post.quantity && <span className="qty"> · {post.quantity}</span>}
       </h2>
       <p className="meta">
-        📍 {post.location} · {post.ownerName}
+        📍 {post.location} · {timeAgo(post.createdAt)}
         {days !== null && (
           <span className={days <= 1 ? "expiry soon" : "expiry"}>
             {" "}· {expiryLabel(days)}
