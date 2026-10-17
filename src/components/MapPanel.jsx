@@ -93,6 +93,9 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
     }
   }, [posts, target?.id, user?.uid]);
 
+  // Active posts that can't be pinned (posted before locations were saved).
+  const unpinned = posts.filter((p) => p.status !== "completed" && !hasSpot(p)).length;
+
   // Walking directions from you to the selected post.
   const isMine = target && user && target.ownerId === user.uid;
   useEffect(() => {
@@ -204,6 +207,12 @@ export default function MapPanel({ here, posts, user, target, onSelect, onClear 
       ) : (
         <p className="map-hint muted">
           {here ? "Tap a pin, or a post's 🧭 Directions button, for walking directions." : "Sign in and finish your profile to get directions."}
+          {unpinned > 0 && (
+            <span className="map-unpinned">
+              {" "}{unpinned} {unpinned === 1 ? "post isn't" : "posts aren't"} on the map yet: {unpinned === 1 ? "it was" : "they were"} posted
+              before locations were saved, and will appear once the poster opens Spare Shelf.
+            </span>
+          )}
         </p>
       )}
     </aside>

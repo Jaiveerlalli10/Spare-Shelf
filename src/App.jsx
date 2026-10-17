@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
-import { useEffect, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, watchChats, ensureChat, isUnread, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { useEffect, useRef, useState } from "react";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, watchChats, ensureChat, isUnread, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -109,6 +109,19 @@ export default function App() {
 
   // Where the viewer lives (from their profile), used for "0.3 mi away".
   const here = complete ? { lat: profile.housingLat, lng: profile.housingLng } : null;
+
+  // Posts made before distances existed have no location, so they can't go on the map.
+  // When their owner opens the app, fill it in from the owner's profile (rounded to ~200 m).
+  const locationFixesTried = useRef(new Set());
+  useEffect(() => {
+    if (!here) return;
+    for (const p of posts) {
+      const needsSpot = p.ownerId === uid && p.status !== "completed" && !Number.isFinite(p.approxLat);
+      if (!needsSpot || locationFixesTried.current.has(p.id)) continue;
+      locationFixesTried.current.add(p.id);
+      addLocationToPost(p, here).catch((err) => console.error("Couldn't add a location to an old post:", err));
+    }
+  }, [uid, here?.lat, here?.lng, posts]);
 
   // Pantry "Share" button -> Offer post.
   function shareFromPantry(item) {

@@ -288,6 +288,18 @@ export async function confirmHandoff(user, post) {
   }
 }
 
+/**
+ * Gives one of your own posts a location (rounded, like new posts get) if it doesn't have one.
+ * Used to fix posts made before distances existed, so they show up on the map.
+ */
+export async function addLocationToPost(post, origin) {
+  const approx = approxPoint(origin);
+  if (!approx) return;
+  const changes = { approxLat: approx.lat, approxLng: approx.lng };
+  if (!isDemoMode) return updateDoc(doc(db, "posts", post.id), changes);
+  demo.updatePost(post.id, changes);
+}
+
 export async function deletePost(post) {
   if (!isDemoMode) return deleteDoc(doc(db, "posts", post.id));
   demo.removePost(post.id);

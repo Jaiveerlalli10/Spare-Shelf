@@ -645,6 +645,7 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 }
 .map-recenter:hover { background: var(--surface-2); }
 .map-hint { margin: 0; padding: 4px 6px; text-align: center; }
+.map-unpinned { display: block; margin-top: 4px; font-size: 0.78rem; opacity: 0.85; }
 
 /* Leaflet, restyled for the dark theme */
 .leaflet-container { background: #0b0b0d; font-family: var(--font-body); }
