@@ -14,7 +14,8 @@
 
 import { firebaseReady, auth, db } from "./firebase";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { nameMatches } from "./matching";
 
 export const isDemoMode = !firebaseReady;
 
@@ -76,8 +77,17 @@ export async function createPost(user, fields) {
     claimedByEmail: "",
     createdAt: Date.now(),
   };
-  if (!isDemoMode) return addDoc(collection(db, "posts"), post);
-  demo.addPost(post);
+  if (!isDemoMode) await addDoc(collection(db, "posts"), post);
+  else demo.addPost(post);
+
+  // Offering something means you have it, so make sure it's in your pantry too.
+  if (post.type === "offer") {
+    try {
+      await addToPantryIfMissing(user, { name: post.item, quantity: post.quantity, expiresOn: post.expiresOn });
+    } catch (err) {
+      console.error("Posted, but couldn't add it to your pantry:", err); // the post itself still worked
+    }
+  }
 }
 
 /** Someone says "I can help" (on a request) or "I'll take it" (on an offer). */
@@ -129,6 +139,15 @@ export async function addPantryItem(user, fields) {
   };
   if (!isDemoMode) return addDoc(pantryCollection(user), item);
   demo.addPantryItem(item);
+}
+
+/** Adds the item unless the pantry already has something with a matching name (e.g. "Eggs" vs "eggs"). */
+export async function addToPantryIfMissing(user, fields) {
+  const pantry = isDemoMode
+    ? demo.getPantry()
+    : (await getDocs(pantryCollection(user))).docs.map((d) => d.data());
+  const alreadyHave = pantry.some((i) => nameMatches(fields.name, i.name) || nameMatches(i.name, fields.name));
+  if (!alreadyHave) await addPantryItem(user, fields);
 }
 
 export async function removePantryItem(user, item) {

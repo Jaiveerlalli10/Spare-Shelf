@@ -40,6 +40,7 @@ export default function PostForm({ user, onDone, initial }) {
         <button type="button" className={form.type === "offer" ? "chip active" : "chip"}
           onClick={() => setForm({ ...form, type: "offer" })}>I have extra</button>
       </div>
+      {form.type === "offer" && <p className="muted form-hint">This will also be added to your pantry.</p>}
 
       <label>Ingredient
         <input name="item" value={form.item} onChange={update} placeholder="e.g. Eggs" />
