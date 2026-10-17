@@ -1,18 +1,20 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useState } from "react";
-import { watchUser, watchPosts, watchProfile, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, watchChats, ensureChat, isUnread, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
 import Pantry from "./components/Pantry";
 import ProfileSetup from "./components/ProfileSetup";
 import Avatar from "./components/Avatar";
+import Recipes from "./components/Recipes";
+import Messages from "./components/Messages";
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
-  const [tab, setTab] = useState("board"); // "board", "mine" or "pantry"
+  const [tab, setTab] = useState("board"); // "board", "mine", "pantry", "recipes" or "messages"
   const [filter, setFilter] = useState("all"); // "all", "offer", "request"
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -20,6 +22,8 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [profileState, setProfileState] = useState("idle"); // "idle" | "loading" | "ready"
   const [editing, setEditing] = useState(false);
+  const [chats, setChats] = useState([]);
+  const [openChatId, setOpenChatId] = useState(null);
   const uid = user ? user.uid : null;
 
   // Start listening to sign-in state and posts when the page loads.
@@ -46,7 +50,30 @@ export default function App() {
     return watchPosts(setPosts);
   }, [uid]);
 
-  // "My posts" and "Pantry" need a signed-in user; fall back to the board otherwise.
+  // Chats belong to a user, so only listen while someone is signed in.
+  useEffect(() => {
+    if (!user) {
+      setChats([]);
+      setOpenChatId(null);
+      return;
+    }
+    return watchChats(user, setChats);
+  }, [uid]);
+  const unreadCount = user ? chats.filter((c) => isUnread(c, user)).length : 0;
+
+  // "Message" buttons: make sure the chat exists, then open it on the Messages tab.
+  async function openChat(post) {
+    try {
+      await ensureChat(post);
+      setOpenChatId(post.id);
+      setTab("messages");
+      window.scrollTo({ top: 0 });
+    } catch (err) {
+      alert("Couldn't open the chat: " + err.message + " (were the latest Firestore rules published?)");
+    }
+  }
+
+  // Every tab except the board needs a signed-in user; fall back to the board otherwise.
   const activeTab = user ? tab : "board";
 
   function openForm(prefill) {
@@ -59,16 +86,29 @@ export default function App() {
     setDraft(null);
   }
 
-  // Pantry "Share" button: switch to the board with an Offer already filled in.
-  function shareFromPantry(item) {
+  // Switch to the board with the post form already filled in.
+  function startPost(prefill) {
     setTab("board");
-    openForm({ type: "offer", item: item.name, quantity: item.quantity, expiresOn: item.expiresOn });
+    openForm(prefill);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   const complete = profileState === "ready" && isProfileComplete(profile);
   const needsProfile = profileState === "ready" && !complete;
   const showApp = !user || complete;
+
+  // Pantry "Share" button -> Offer post.
+  function shareFromPantry(item) {
+    startPost({ type: "offer", pantryItemId: item.id, item: item.name, quantity: item.quantity, expiresOn: item.expiresOn });
+  }
+
+  // Recipe "Request it" button -> Request post for a missing ingredient.
+  function requestIngredient(ing) {
+    const item = ing.name.charAt(0).toUpperCase() + ing.name.slice(1);
+    startPost({ type: "request", item, quantity: ing.amount });
+  }
+
+  const onPostsTab = activeTab === "board" || activeTab === "mine";
 
   const term = search.trim().toLowerCase();
   const visible = posts.filter((p) => {
@@ -123,26 +163,33 @@ export default function App() {
 
       <div className="toolbar">
         <div className="tabs" role="tablist">
-          {["board", "mine", "pantry"].map((t) => (
-            <button key={t} className={activeTab === t ? "tab active" : "tab"} onClick={() => setTab(t)}
+          {[["board", "Board"], ["mine", "My posts"], ["pantry", "Pantry"], ["recipes", "Recipes"], ["messages", "Messages"]].map(([t, label]) => (
+            <button key={t} className={activeTab === t ? "tab active" : "tab"}
+              onClick={() => { setTab(t); if (t === "messages") setOpenChatId(null); }}
               disabled={t !== "board" && !user}>
-              {t === "board" ? "Board" : t === "mine" ? "My posts" : "Pantry"}
+              {label}
+              {t === "messages" && unreadCount > 0 && <span className="tab-count">{unreadCount}</span>}
             </button>
           ))}
         </div>
-        {user && activeTab !== "pantry" && (
+        {user && onPostsTab && (
           <button className="btn primary" onClick={() => (showForm ? closeForm() : openForm(null))}>
             {showForm ? "Close" : "+ New post"}
           </button>
         )}
       </div>
 
-      {showForm && user && activeTab !== "pantry" && (
-        <PostForm key={draft ? draft.key : "new"} user={user} initial={draft} onDone={closeForm} />
+      {showForm && user && onPostsTab && (
+        <PostForm key={draft ? draft.key : "new"} user={user} posts={posts} initial={draft} onDone={closeForm} />
       )}
 
       {activeTab === "pantry" ? (
-        <Pantry user={user} onShare={shareFromPantry} />
+        <Pantry user={user} posts={posts} onShare={shareFromPantry} onMessage={openChat} />
+      ) : activeTab === "recipes" ? (
+        <Recipes user={user} posts={posts} onRequest={requestIngredient} onMessage={openChat} />
+      ) : activeTab === "messages" ? (
+        <Messages user={user} chats={chats} posts={posts} openChatId={openChatId}
+          onOpen={setOpenChatId} onBack={() => setOpenChatId(null)} />
       ) : (
       <>
         <div className="filters">
@@ -165,7 +212,7 @@ export default function App() {
           ) : visible.length === 0 ? (
             <p className="empty">Nothing here yet. Be the first to post!</p>
           ) : (
-            visible.map((p) => <PostCard key={p.id} post={p} user={user} />)
+            visible.map((p) => <PostCard key={p.id} post={p} user={user} onMessage={openChat} />)
           )}
         </main>
       </>

@@ -1,12 +1,29 @@
 // Form for creating an Offer or a Request.
-import { useState } from "react";
-import { createPost } from "../data";
+import { useEffect, useState } from "react";
+import { createPost, watchPantry } from "../data";
+import { activeOffersByPantryItem } from "../matching";
 
-const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn: "", estValue: "", notes: "" };
+const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn: "", estValue: "", notes: "", pantryItemId: "" };
 
 // `initial` (optional) pre-fills the form, e.g. when sharing an item from the pantry.
-export default function PostForm({ user, onDone, initial }) {
+// `posts` is used to hide pantry entries that are already on the board.
+export default function PostForm({ user, posts, onDone, initial }) {
   const [form, setForm] = useState({ ...EMPTY, ...initial });
+  const [pantry, setPantry] = useState([]);
+
+  useEffect(() => watchPantry(user, setPantry), [user.uid]);
+
+  // Pantry entries you could offer: everything not already in an active offer.
+  const onBoard = activeOffersByPantryItem(posts, user);
+  const offerable = pantry.filter((i) => !onBoard.has(i.id)).sort((a, b) => a.name.localeCompare(b.name));
+
+  // Picking a pantry entry fills in its name, amount and best-by date.
+  function pickPantryItem(e) {
+    const item = pantry.find((i) => i.id === e.target.value);
+    setForm(item
+      ? { ...form, pantryItemId: item.id, item: item.name, quantity: item.quantity, expiresOn: item.expiresOn }
+      : { ...form, pantryItemId: "" });
+  }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -40,6 +57,16 @@ export default function PostForm({ user, onDone, initial }) {
         <button type="button" className={form.type === "offer" ? "chip active" : "chip"}
           onClick={() => setForm({ ...form, type: "offer" })}>I have extra</button>
       </div>
+      {form.type === "offer" && (
+        <label>From your pantry
+          <select value={form.pantryItemId} onChange={pickPantryItem}>
+            <option value="">Add as a new pantry item</option>
+            {offerable.map((i) => (
+              <option key={i.id} value={i.id}>{i.name}{i.quantity && ` · ${i.quantity}`}</option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <label>Ingredient
         <input name="item" value={form.item} onChange={update} placeholder="e.g. Eggs" />

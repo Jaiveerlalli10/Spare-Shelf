@@ -35,6 +35,13 @@ Open the link it prints (usually http://localhost:5173). Without Firebase keys t
 | `src/components/PostForm.jsx` | The "new post" form. |
 | `src/components/PostCard.jsx` | One post, plus its buttons (claim, complete, delete). |
 | `src/components/Pantry.jsx` | Pantry tab: your private list of what's at home, with a "Share" button that creates an Offer. |
+| `src/components/Recipes.jsx` | Recipes tab: mock recipes with tag filters. |
+| `src/components/RecipeDetail.jsx` | One recipe: what you have, what you need, and who's offering it. |
+| `src/components/Messages.jsx` | Messages tab: list of your chats. |
+| `src/components/ChatView.jsx` | One chat about one post, with the hand-off confirmation. |
+| `src/components/Handoff.jsx` | "I handed it off" / "I got it" buttons. A post completes when both sides confirm. |
+| `src/recipes.js` | The mock recipe data. Add recipes here. |
+| `src/matching.js` | Matches ingredient names to pantry items and posts. |
 | `src/dates.js` | Best-by date helpers. |
 | `src/components/ImpactBar.jsx` | Impact counter (items shared, $ saved, kg of food saved). |
 | `src/styles.css` | All styling. The colors are at the top. |
