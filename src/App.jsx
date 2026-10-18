@@ -404,12 +404,12 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           <span className="logo" aria-hidden>
-            <span className="logo-row"><span>🫙</span><span>🍋</span></span>
-            <span className="logo-plank" />
-            <span className="logo-row"><span>🌿</span><span>🍞</span></span>
-            <span className="logo-plank" />
-            <span className="logo-row"><span>🥕</span><span>🥛</span></span>
-            <span className="logo-plank" />
+            <span className="logo-unit">
+              <span className="logo-row"><span>🫙</span><span>🍋</span></span>
+              <span className="logo-plank" />
+              <span className="logo-row"><span>🌿</span><span>🥕</span></span>
+              <span className="logo-plank" />
+            </span>
           </span>
           <div>
             <h1>Spare Shelf</h1>

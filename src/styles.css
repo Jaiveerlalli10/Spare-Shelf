@@ -144,13 +144,21 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 
 .brand { display: flex; align-items: center; gap: 12px; }
 .logo {
-  display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 1px;
-  flex-shrink: 0; overflow: hidden; width: 52px; height: 52px; padding: 4px 5px 3px; border-radius: 0;
-  background: var(--clay); box-shadow: 0 14px 28px -14px var(--clay), inset 3px 0 0 var(--on-accent), inset -3px 0 0 var(--on-accent);
+  display: grid; place-items: stretch; flex-shrink: 0; overflow: hidden;
+  width: 60px; height: 60px; border-radius: 0;
+  background: var(--clay); box-shadow: 0 14px 28px -14px var(--clay);
   transform: rotate(-5deg);
 }
-.logo-row { display: flex; align-items: flex-end; justify-content: space-evenly; height: 11px; font-size: 0.62rem; line-height: 1; }
-.logo-plank { flex-shrink: 0; height: 2px; background: var(--on-accent); }
+.logo-unit {
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; min-height: 0;
+  margin: 5px 6px 4px;
+  box-shadow: inset 2px 0 0 var(--on-accent), inset -2px 0 0 var(--on-accent);
+}
+.logo-row {
+  display: flex; align-items: flex-end; justify-content: space-evenly; flex: 1 1 auto; min-height: 0;
+  font-size: 1.05rem; line-height: 1;
+}
+.logo-plank { flex: 0 0 3px; height: 3px; background: var(--on-accent); }
 .brand h1 {
   margin: 0; font-size: 1.6rem; font-weight: 800; line-height: 1.1;
   background: var(--grad-title); -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -676,8 +684,10 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   .sidebar .stat span:last-child { font-size: 0.64rem; line-height: 1.2; }
   .sidebar-heading { margin-bottom: 6px; }
   .sidebar-note { display: none; }
-  .logo { width: 44px; height: 44px; padding: 3px 4px 2px; }
-  .logo-row { height: 9px; font-size: 0.52rem; }
+  .logo { width: 48px; height: 48px; }
+  .logo-unit { margin: 4px 5px 3px; }
+  .logo-row { font-size: 0.82rem; }
+  .logo-plank { flex-basis: 2px; height: 2px; }
   .brand h1 { font-size: 1.4rem; }
   .page-head h2 { font-size: 1.6rem; }
   .page-icon { width: 50px; height: 50px; font-size: 1.5rem; }
