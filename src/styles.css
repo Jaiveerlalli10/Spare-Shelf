@@ -361,6 +361,7 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   font-family: inherit; font-size: 0.875rem; font-weight: 700; letter-spacing: 0;
 }
 .ticket-kind { color: var(--accent); }
+.ticket-price { margin-left: auto; }
 .ticket-body { display: flex; gap: 16px; align-items: flex-start; min-width: 0; }
 .post:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); }
 .post-emoji {

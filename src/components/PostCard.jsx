@@ -18,6 +18,12 @@ function timeAgo(ms) {
 
 const firstName = (name) => (name || "").split(" ")[0];
 
+function priceLabel(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`;
+}
+
 // `onMessage(post)` opens the chat for a claimed post.
 // `here` is the viewer's housing location, used to show "0.3 mi away".
 // `index` staggers the entrance animation.
@@ -27,6 +33,7 @@ const firstName = (name) => (name || "").split(" ")[0];
 // `onAcceptPickup(post)` lets the receiver accept it; `liveShare` controls the giver's live location (Pause).
 export default function PostCard({ post, user, here, onMessage, onClaim, onReview, onDirections, pickup, declinedPickup, onChoosePickup, onAcceptPickup, onDeclinePickup, onDeclineForGood, liveShare, index = 0, focused = false }) {
   const isOffer = post.type === "offer";
+  const price = priceLabel(post.estValue);
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
   const days = daysUntil(post.expiresOn);
@@ -71,6 +78,7 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
       }}>
       <div className="ticket-head">
         <span className="ticket-kind">{isOffer ? "Offer" : "Request"}</span>
+        {price && <span className="ticket-price">{price}</span>}
       </div>
       <div className="ticket-body">
       <div className="post-emoji" aria-hidden>{foodEmoji(post.item)}</div>
