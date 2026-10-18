@@ -86,9 +86,12 @@ export function endpoint(fn) {
     try {
       res.status(200).json(await fn(req, typeof req.body === "object" && req.body ? req.body : {}));
     } catch (err) {
-      const status = err instanceof HttpError ? err.status : 500;
-      if (status === 500) console.error(err);
-      res.status(status).json({ error: err.message || "Something went wrong." });
+      // Stripe's own errors (like a setup step missing in the dashboard) are shown as-is; they're safe to share.
+      const fromStripe = String(err?.type || "").startsWith("Stripe");
+      const status = err instanceof HttpError ? err.status : fromStripe ? 502 : 500;
+      if (status >= 500) console.error(err.message || err);
+      const message = err instanceof HttpError ? err.message : fromStripe ? `Stripe: ${err.message}` : "Something went wrong on the payment server.";
+      res.status(status).json({ error: message });
     }
   };
 }
