@@ -1,10 +1,9 @@
 // One recipe: which ingredients you have (from your pantry), which you need,
 // and who on the board is offering the ones you need.
-import { claimPost } from "../data";
 import { findInPantry, findOffers } from "../matching";
 import { milesToPost, awayLabel } from "../location";
 
-export default function RecipeDetail({ recipe, pantry, posts, user, here, onBack, onRequest, onMessage }) {
+export default function RecipeDetail({ recipe, pantry, posts, user, here, onBack, onRequest, onMessage, onClaim }) {
   // Closest offers first; offers with no location go last.
   const away = (p) => milesToPost(here, p) ?? Infinity;
   const rows = recipe.ingredients.map((ing) => {
@@ -57,11 +56,10 @@ export default function RecipeDetail({ recipe, pantry, posts, user, here, onBack
                         </span>
                         {p.claimedById === user.uid ? (
                           <span className="offer-claimed">
-                            <span className="status claimed">You're on it</span>
                             <button className="btn ghost small" onClick={() => onMessage(p)}>💬 Message</button>
                           </span>
                         ) : (
-                          <button className="btn primary small" onClick={() => claimPost(user, p, here)}>I'll take it</button>
+                          <button className="btn primary small" onClick={() => onClaim(p)}>I'll take it</button>
                         )}
                       </li>
                     ))}

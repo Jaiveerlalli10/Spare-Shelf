@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useRef, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, setPickupSpot, setPostPickup, acceptPickupSpot, pickupsFor, handoffRoles, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, syncCommunity, claimPost, addLocationToPost, addClaimerLocation, setPickupSpot, setPostPickup, acceptPickupSpot, pickupsFor, handoffRoles, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -12,6 +12,7 @@ import Recipes from "./components/Recipes";
 import Messages from "./components/Messages";
 import ReviewSheet from "./components/ReviewSheet";
 import Community from "./components/Community";
+import { communityId } from "./community";
 import { milesToPost, publicPlaceLabel } from "./location";
 import MapPanel from "./components/MapPanel";
 import { useDeviceLocation } from "./useDeviceLocation";
@@ -20,7 +21,7 @@ import { useLiveSharing } from "./useLiveSharing";
 export default function App() {
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
-  const [tab, setTab] = useState("board"); // "board", "mine", "pantry", "recipes" or "messages"
+  const [tab, setTab] = useState("board"); // "board", "community", "mine", "history", "pantry", "recipes" or "messages"
   const [filter, setFilter] = useState("all"); // "all", "offer", "request"
   const [sort, setSort] = useState("newest"); // "newest" or "nearest"
   const [search, setSearch] = useState("");
@@ -114,6 +115,14 @@ export default function App() {
     savePublicProfile(user, myPhoto).catch((err) => console.error("Couldn't share profile picture:", err));
   }, [uid, myPhoto]);
 
+  // Join my dorm or apartment as soon as I sign in, so neighbors see me
+  // even if I never open the Community tab or I'm offline right now.
+  const myCommunity = complete ? communityId(profile.universityName, profile.housingLabel) : "";
+  useEffect(() => {
+    if (!myCommunity) return;
+    syncCommunity(user, profile).catch((err) => console.error("Couldn't join your dorm or apartment:", err));
+  }, [uid, myCommunity, user && user.name, myPhoto]);
+
   // Where the viewer lives (from their profile), used for "0.3 mi away".
   const here = complete ? { lat: profile.housingLat, lng: profile.housingLng } : null;
 
@@ -153,10 +162,15 @@ export default function App() {
 
   const term = search.trim().toLowerCase();
   const visible = posts.filter((p) => {
-    if (activeTab === "board" && p.status === "completed") return false;
-    if (activeTab === "mine" && !(p.ownerId === user.uid || p.claimedById === user.uid)) return false;
+    // The board only shows what you can still respond to: open posts from other people.
+    // Your own posts and ones you claimed live under "My posts".
+    if (activeTab === "board" && (p.status !== "open" || (user && p.ownerId === user.uid))) return false;
+    const involved = user && (p.ownerId === user.uid || p.claimedById === user.uid);
+    // My posts: still in progress. History: hand-offs that are done.
+    if (activeTab === "mine" && !(involved && p.status !== "completed")) return false;
+    if (activeTab === "history" && !(involved && p.status === "completed")) return false;
     if (filter !== "all" && p.type !== filter) return false;
-    if (term && !`${p.item} ${p.location} ${p.notes}`.toLowerCase().includes(term)) return false;
+    if (term && !`${p.item} ${p.location} ${p.notes} ${p.ownerName}`.toLowerCase().includes(term)) return false;
     return true;
   });
   // "Nearest": closest first; posts with no location go last. (Posts already arrive newest first.)
@@ -164,6 +178,51 @@ export default function App() {
     const away = (p) => milesToPost(here, p) ?? Infinity;
     visible.sort((a, b) => away(a) - away(b));
   }
+
+  // From the Community tab: open a post on the board (or "My posts" if it's yours) and
+  // scroll to it, or show everything one person has on the board.
+  const [focusPostId, setFocusPostId] = useState(null);
+  function openPost(post) {
+    const mine = user && (post.ownerId === user.uid || post.claimedById === user.uid);
+    setTab(!mine ? "board" : post.status === "completed" ? "history" : "mine");
+    setFilter("all");
+    setSearch("");
+    setFocusPostId(post.id);
+  }
+  function openPerson(person) {
+    setTab(user && person.uid === user.uid ? "mine" : "board");
+    setFilter("all");
+    setSearch(user && person.uid === user.uid ? "" : person.name || "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  // "I'll take it" / "I can help" anywhere: claim it, then show it under "My posts".
+  async function claim(post) {
+    try {
+      await claimPost(user, post, here);
+    } catch (err) {
+      alert("Couldn't respond: " + err.message);
+      return;
+    }
+    setTab("mine");
+    setFilter("all");
+    setSearch("");
+    setFocusPostId(post.id);
+  }
+  // Scroll to the focused post once its card is on the page (a fresh claim can take a moment to show up).
+  const focusScrolled = useRef(null);
+  useEffect(() => {
+    if (!focusPostId) return;
+    const el = document.getElementById(`post-${focusPostId}`);
+    if (el && focusScrolled.current !== focusPostId) {
+      focusScrolled.current = focusPostId;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [focusPostId, activeTab, posts]);
+  useEffect(() => {
+    if (!focusPostId) return;
+    const done = setTimeout(() => { setFocusPostId(null); focusScrolled.current = null; }, 2500);
+    return () => clearTimeout(done);
+  }, [focusPostId]);
 
   const mapTarget = posts.find((p) => p.id === mapTargetId) || null;
 
@@ -262,7 +321,8 @@ export default function App() {
     // `tone` gives each section its own color (see the .tone-* classes in styles.css).
     { id: "board", label: "Board", icon: "🏠", tone: "basil", title: "Board", sub: "What your neighbors are offering and asking for." },
     { id: "community", label: "Community", icon: "🏘️", tone: "berry", title: complete ? profile.housingLabel : "Community", sub: complete ? `Neighbors in ${profile.housingLabel}. Offer extras, or grab something without a trip to the store.` : "What your dorm or apartment is offering and looking for." },
-    { id: "mine", label: "My posts", icon: "📝", tone: "sky", title: "My posts", sub: "Posts you made or claimed." },
+    { id: "mine", label: "My posts", icon: "📝", tone: "sky", title: "My posts", sub: "Posts you made or claimed that aren't shared yet." },
+    { id: "history", label: "History", icon: "🕘", tone: "basil", title: "History", sub: "Everything you've shared or received." },
     { id: "pantry", label: "Pantry", icon: "🥫", tone: "saffron", title: "Pantry", sub: "What you have at home. Only you can see this." },
     { id: "recipes", label: "Recipes", icon: "🍳", tone: "tomato", title: "Recipes", sub: "Cook with what you have. Borrow the rest." },
     { id: "messages", label: "Messages", icon: "💬", tone: "plum", title: "Messages", sub: "Plan pickups with your neighbors." },
@@ -374,11 +434,11 @@ export default function App() {
         )}
 
         {activeTab === "community" ? (
-          <Community user={user} profile={profile} posts={posts} here={here} />
+          <Community user={user} profile={profile} posts={posts} here={here} onOpenPost={openPost} onOpenPerson={openPerson} onClaim={claim} />
         ) : activeTab === "pantry" ? (
           <Pantry user={user} posts={posts} onShare={shareFromPantry} onMessage={openChat} />
         ) : activeTab === "recipes" ? (
-          <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} />
+          <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} onClaim={claim} />
         ) : activeTab === "messages" ? (
           <Messages user={user} chats={chats} openWith={openChatWith}
             onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} />
@@ -408,11 +468,17 @@ export default function App() {
             {!user && !isDemoMode ? (
               <p className="empty">Sign in to see what your neighbors are sharing.</p>
             ) : visible.length === 0 ? (
-              <p className="empty">Nothing here yet. Be the first to post!</p>
+              <p className="empty">
+                {activeTab === "history"
+                  ? "Nothing shared yet. Finished hand-offs show up here."
+                  : activeTab === "mine"
+                    ? "Nothing in progress. Post something or claim a neighbor's offer."
+                    : "Nothing here yet. Be the first to post!"}
+              </p>
             ) : (
               visible.map((p, i) => (
-                <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onReview={setReviewPost} onDirections={showDirections}
-                  pickup={pickups[p.id]} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} liveShare={liveShare} index={i} />
+                <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onClaim={claim} onReview={setReviewPost} onDirections={showDirections}
+                  pickup={pickups[p.id]} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} liveShare={liveShare} index={i} focused={p.id === focusPostId} />
               ))
             )}
           </main>

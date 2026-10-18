@@ -20,7 +20,7 @@ const SHOW_POST_PINS = false;
 
 const hasSpot = (p) => p && Number.isFinite(p.approxLat) && Number.isFinite(p.approxLng);
 
-const REROUTE_METERS = 50; // walk this far from where the route started before it re-routes
+const REROUTE_METERS = 20; // walk this far from where the route started before it re-routes
 
 // `here`: your housing { lat, lng } from your profile (or null), with `homeLabel` its name.
 // `device`: your live device location (from useDeviceLocation in App). `target`: the selected post (or null).
@@ -65,6 +65,11 @@ export default function MapPanel({
     L.tileLayer(TILES, { attribution: ATTRIBUTION, maxZoom: 19 }).addTo(map);
     pinsRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
+    // Live dots glide between updates (CSS transition). Turn that off while zooming so they
+    // don't slide around as the map rescales.
+    const container = map.getContainer();
+    map.on("zoomstart", () => container.classList.add("no-glide"));
+    map.on("zoomend", () => setTimeout(() => container.classList.remove("no-glide"), 60));
     // Keep tiles filling the box when the layout changes size.
     const resize = new ResizeObserver(() => map.invalidateSize());
     resize.observe(boxRef.current);
@@ -76,24 +81,32 @@ export default function MapPanel({
   }, []);
 
   // "You" dot (live location if allowed, otherwise your profile address), plus an accuracy circle.
+  // The marker is kept and moved (not re-created) so it glides smoothly between GPS updates.
   const centeredOn = useRef(""); // re-center only when switching between profile and live location
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (meRef.current) meRef.current.remove();
-    meRef.current = null;
-    if (!origin) return;
-    const layers = [L.marker([origin.lat, origin.lng], {
-      icon: L.divIcon({ className: origin.live ? "map-me live" : "map-me", html: "<span></span>", iconSize: [22, 22] }),
-      title: origin.live ? "You (live location)" : `You (${homeLabel || "your profile"})`,
-      zIndexOffset: 1000,
-    })];
-    if (origin.live && origin.accuracy < 500) {
-      layers.unshift(L.circle([origin.lat, origin.lng], {
-        radius: origin.accuracy, color: "#3797f0", weight: 1, opacity: 0.5, fillColor: "#3797f0", fillOpacity: 0.12, interactive: false,
-      }));
+    const me = meRef.current; // { marker, circle, live }
+    if (!origin) {
+      if (me) { me.marker.remove(); me.circle.remove(); meRef.current = null; }
+      return;
     }
-    meRef.current = L.featureGroup(layers).addTo(map);
+    const at = [origin.lat, origin.lng];
+    const icon = () => L.divIcon({ className: origin.live ? "map-me live" : "map-me", html: "<span></span>", iconSize: [22, 22] });
+    if (!me) {
+      meRef.current = {
+        marker: L.marker(at, { icon: icon(), title: origin.live ? "You (live location)" : `You (${homeLabel || "your profile"})`, zIndexOffset: 1000 }).addTo(map),
+        circle: L.circle(at, { radius: 0, color: "#3797f0", weight: 1, opacity: 0.5, fillColor: "#3797f0", fillOpacity: 0.12, interactive: false }).addTo(map),
+        live: origin.live,
+      };
+    } else {
+      me.marker.setLatLng(at);
+      me.circle.setLatLng(at);
+      if (me.live !== origin.live) { me.marker.setIcon(icon()); me.live = origin.live; }
+    }
+    const showCircle = origin.live && origin.accuracy < 500;
+    meRef.current.circle.setRadius(showCircle ? origin.accuracy : 0);
+    meRef.current.circle.setStyle({ opacity: showCircle ? 0.5 : 0, fillOpacity: showCircle ? 0.12 : 0 });
     const mode = origin.live ? "live" : "home";
     if (!target && centeredOn.current !== mode) {
       centeredOn.current = mode;
@@ -345,30 +358,40 @@ export default function MapPanel({
   }, [otherToWatch, user?.uid]);
   const [now, setNow] = useState(Date.now()); // keeps "updated 20s ago" and staleness current
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 10000);
+    const id = setInterval(() => setNow(Date.now()), 2000);
     return () => clearInterval(id);
   }, []);
   const otherNow = otherLive && now - otherLive.updatedAt < LIVE_FRESH_MS ? otherLive : null;
 
-  // Their dot on the map.
+  // Their dot on the map: kept and moved (not re-created) so it glides between updates.
   const otherDotRef = useRef(null);
   useEffect(() => {
     const map = mapRef.current;
-    if (otherDotRef.current) otherDotRef.current.remove();
-    otherDotRef.current = null;
-    if (!map || !otherNow || !roles) return;
-    otherDotRef.current = L.marker([otherNow.lat, otherNow.lng], {
-      icon: L.divIcon({ className: "map-other", html: "<span>🧑</span>", iconSize: [30, 30] }),
-      title: `${otherPersonName} (live)`,
-      zIndexOffset: 990,
-    }).addTo(map);
-  }, [otherNow?.lat, otherNow?.lng, Boolean(otherNow), otherPersonName]);
+    if (!map) return;
+    if (!otherNow || !roles) {
+      if (otherDotRef.current) { otherDotRef.current.remove(); otherDotRef.current = null; }
+      return;
+    }
+    if (otherDotRef.current) {
+      otherDotRef.current.setLatLng([otherNow.lat, otherNow.lng]);
+    } else {
+      otherDotRef.current = L.marker([otherNow.lat, otherNow.lng], {
+        icon: L.divIcon({ className: "map-other", html: "<span>🧑</span>", iconSize: [30, 30] }),
+        title: `${otherPersonName} (live)`,
+        zIndexOffset: 990,
+      }).addTo(map);
+    }
+  }, [otherNow?.lat, otherNow?.lng, Boolean(otherNow)]);
+  // A different person (another hand-off): start a fresh dot.
+  useEffect(() => () => {
+    if (otherDotRef.current) { otherDotRef.current.remove(); otherDotRef.current = null; }
+  }, [otherToWatch]);
 
-  // Their walking ETA to the pickup spot (re-checked after they move ~40 m).
+  // Their walking ETA to the pickup spot (re-checked after they move ~20 m).
   const [otherFrom, setOtherFrom] = useState(null);
   useEffect(() => {
     if (!otherNow) { setOtherFrom(null); return; }
-    setOtherFrom((prev) => (prev && L.latLng(prev.lat, prev.lng).distanceTo([otherNow.lat, otherNow.lng]) < 40
+    setOtherFrom((prev) => (prev && L.latLng(prev.lat, prev.lng).distanceTo([otherNow.lat, otherNow.lng]) < REROUTE_METERS
       ? prev : { lat: otherNow.lat, lng: otherNow.lng }));
   }, [otherNow?.lat, otherNow?.lng, Boolean(otherNow)]);
   const [otherEta, setOtherEta] = useState(null); // { arrived } or { duration, distance }

@@ -1,5 +1,5 @@
 // One post on the board, plus the buttons that make sense for whoever is looking at it.
-import { claimPost, deletePost } from "../data";
+import { deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
 import LiveNote from "./LiveNote";
@@ -25,7 +25,7 @@ const firstName = (name) => (name || "").split(" ")[0];
 // `onReview(post)` opens the hand-off review sheet.
 // `pickup`: the pickup spot for this hand-off (if chosen); `onChoosePickup(post)` lets the giver choose it.
 // `onAcceptPickup(post)` lets the receiver accept it; `liveShare` controls the giver's live location (Pause).
-export default function PostCard({ post, user, here, onMessage, onReview, onDirections, pickup, onChoosePickup, onAcceptPickup, liveShare, index = 0 }) {
+export default function PostCard({ post, user, here, onMessage, onClaim, onReview, onDirections, pickup, onChoosePickup, onAcceptPickup, liveShare, index = 0, focused = false }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
@@ -51,24 +51,19 @@ export default function PostCard({ post, user, here, onMessage, onReview, onDire
   } else if (isMine && post.status === "open") {
     actions = <button className="btn ghost" onClick={() => deletePost(post)}>Delete</button>;
   } else if (inChat && post.status === "claimed") {
-    actions = (
-      <>
-        <span className="status claimed">{isMine ? `${post.claimedByName} is on it` : "You're on it!"}</span>
-        {messageButton}
-      </>
-    );
+    actions = messageButton;
   } else if (post.status === "open") {
     actions = (
-      <button className="btn primary" onClick={() => claimPost(user, post, here)}>
+      <button className="btn primary" onClick={() => onClaim(post)}>
         {isOffer ? "I'll take it" : "I can help"}
       </button>
     );
   } else {
-    actions = <span className="status claimed">Someone's on it</span>;
+    actions = null;
   }
 
   return (
-    <article className={`card post ${post.type}`} style={{ "--i": Math.min(index, 8) }}>
+    <article id={`post-${post.id}`} className={`card post ${post.type}${focused ? " focused" : ""}`} style={{ "--i": Math.min(index, 8) }}>
       <div className="post-emoji" aria-hidden>{foodEmoji(post.item)}</div>
       <div className="post-body">
       {/* Reads as a sentence: "Lucas is requesting Sugar · 1 cup" */}

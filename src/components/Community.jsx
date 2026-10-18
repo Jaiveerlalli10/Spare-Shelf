@@ -1,20 +1,34 @@
 // Neighbors who live in the same dorm or apartment, and what they are sharing.
 import { useEffect, useState } from "react";
-import { claimPost, deletePost, syncCommunity, watchCommunityMembers } from "../data";
+import { deletePost, syncCommunity, watchCommunityMembers } from "../data";
 import { communityId, communityPeople } from "../community";
 import { foodEmoji } from "../foodEmoji";
 import Avatar from "./Avatar";
 import { useReputation } from "./Reputation";
 
-function ItemRow({ post, mine, onClaim }) {
+function ItemRow({ post, mine, onClaim, onOpen }) {
   const open = post.status === "open";
-  return (
-    <li className="community-item">
+  // Claimed posts from other people are hidden on the board, so there's nowhere to jump to.
+  const canOpen = mine || open;
+  const label = (
+    <>
       <span className="community-emoji" aria-hidden>{foodEmoji(post.item)}</span>
       <span className="what">
         <strong>{post.item}</strong>
         {post.quantity && <span className="muted"> {post.quantity}</span>}
       </span>
+    </>
+  );
+  return (
+    <li className="community-item">
+      {canOpen ? (
+        <button type="button" className="community-open" onClick={() => onOpen(post)}
+          title={mine ? "Show in My posts" : "Show on the board"}>
+          {label}
+        </button>
+      ) : (
+        <span className="community-open">{label}</span>
+      )}
       {mine && open && (
         <button className="btn ghost small" onClick={() => deletePost(post)}>Delete</button>
       )}
@@ -29,7 +43,7 @@ function ItemRow({ post, mine, onClaim }) {
   );
 }
 
-function Column({ title, tone, posts, empty, mine, onClaim }) {
+function Column({ title, tone, posts, empty, mine, onClaim, onOpen }) {
   return (
     <div className={tone}>
       <h3>{title}</h3>
@@ -38,7 +52,7 @@ function Column({ title, tone, posts, empty, mine, onClaim }) {
       ) : (
         <ul className="community-items">
           {posts.map((post) => (
-            <ItemRow key={post.id} post={post} mine={mine} onClaim={onClaim} />
+            <ItemRow key={post.id} post={post} mine={mine} onClaim={onClaim} onOpen={onOpen} />
           ))}
         </ul>
       )}
@@ -46,7 +60,7 @@ function Column({ title, tone, posts, empty, mine, onClaim }) {
   );
 }
 
-function PersonSquare({ person, mine, onClaim }) {
+function PersonSquare({ person, mine, onClaim, onOpenPost, onOpenPerson }) {
   const summary = useReputation(person.uid);
   const score = summary ? summary.average.toFixed(1) : "";
   const reviewLabel = summary
@@ -54,7 +68,8 @@ function PersonSquare({ person, mine, onClaim }) {
     : "No ratings yet";
   return (
     <li className="card community-card">
-      <div className="community-card-top">
+      <button type="button" className="community-card-top" onClick={() => onOpenPerson(person)}
+        title={mine ? "Show My posts" : `Show ${person.name}'s posts on the board`}>
         <Avatar name={person.name} photoURL={person.photoURL} size="md" />
         <div className="community-card-id">
           <strong>{mine ? `${person.name} (you)` : person.name}</strong>
@@ -74,16 +89,16 @@ function PersonSquare({ person, mine, onClaim }) {
             </span>
           )}
         </div>
-      </div>
+      </button>
       <div className="community-card-body">
-        <Column title="Offering" tone="offers" posts={person.offers} empty="Nothing offered right now" mine={mine} onClaim={onClaim} />
-        <Column title="Looking to buy" tone="requests" posts={person.requests} empty="Not looking for anything right now" mine={mine} onClaim={onClaim} />
+        <Column title="Offering" tone="offers" posts={person.offers} empty="Nothing offered right now" mine={mine} onClaim={onClaim} onOpen={onOpenPost} />
+        <Column title="Looking to buy" tone="requests" posts={person.requests} empty="Not looking for anything right now" mine={mine} onClaim={onClaim} onOpen={onOpenPost} />
       </div>
     </li>
   );
 }
 
-export default function Community({ user, profile, posts, here }) {
+export default function Community({ user, profile, posts, onOpenPost, onOpenPerson, onClaim }) {
   const id = communityId(profile.universityName, profile.housingLabel);
   const place = profile.housingLabel;
   const [members, setMembers] = useState([]);
@@ -128,15 +143,8 @@ export default function Community({ user, profile, posts, here }) {
     search,
   });
   const others = people.filter((person) => person.uid !== user.uid);
+  const anyNeighbors = members.some((member) => member.uid !== user.uid);
   const term = search.trim();
-
-  async function onClaim(post) {
-    try {
-      await claimPost(user, post, here);
-    } catch (err) {
-      alert("Couldn't respond: " + err.message);
-    }
-  }
 
   return (
     <section className="community">
@@ -150,7 +158,9 @@ export default function Community({ user, profile, posts, here }) {
       {error && <p className="error community-note">{error}</p>}
       {!error && ready && !term && others.length === 0 && (
         <p className="muted community-note">
-          You're the first from {place} on Spare Shelf. When a neighbor joins with this same dorm or apartment, their offers and requests show up here.
+          {anyNeighbors
+            ? `No one else in ${place} has anything open right now. New offers and requests show up here.`
+            : `You're the first from ${place} on Spare Shelf. When a neighbor joins with this same dorm or apartment, their offers and requests show up here.`}
         </p>
       )}
 
@@ -161,7 +171,8 @@ export default function Community({ user, profile, posts, here }) {
       ) : (
         <ul className="community-grid">
           {people.map((person) => (
-            <PersonSquare key={person.uid} person={person} mine={person.uid === user.uid} onClaim={onClaim} />
+            <PersonSquare key={person.uid} person={person} mine={person.uid === user.uid} onClaim={onClaim}
+              onOpenPost={onOpenPost} onOpenPerson={onOpenPerson} />
           ))}
         </ul>
       )}

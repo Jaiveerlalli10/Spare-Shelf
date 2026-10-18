@@ -33,7 +33,7 @@ function activePosts(posts, uid) {
 }
 
 /**
- * Neighbors in this dorm or apartment, each with their current offers and requests.
+ * Neighbors in this dorm or apartment who have something open to claim, plus you.
  * Search matches a name, or an item someone is offering or looking to buy.
  */
 export function communityPeople({ me, members, posts, search }) {
@@ -54,7 +54,10 @@ export function communityPeople({ me, members, posts, search }) {
   const term = (search || "").trim().toLowerCase();
   const people = [];
   for (const member of byId.values()) {
-    const mine = activePosts(posts, member.uid);
+    const isMe = Boolean(me && member.uid === me.uid);
+    // Your own card shows everything still in progress. For neighbors, only what you can still claim.
+    const mine = activePosts(posts, member.uid).filter((post) => isMe || post.status === "open");
+    if (!isMe && mine.length === 0) continue;
     const nameHit = (member.name || "").toLowerCase().includes(term);
     const itemHit = mine.some((post) => `${post.item || ""} ${post.quantity || ""}`.toLowerCase().includes(term));
     if (term && !nameHit && !itemHit) continue;
@@ -68,9 +71,6 @@ export function communityPeople({ me, members, posts, search }) {
   people.sort((a, b) => {
     if (me && a.uid === me.uid) return -1;
     if (me && b.uid === me.uid) return 1;
-    const aCount = a.offers.length + a.requests.length;
-    const bCount = b.offers.length + b.requests.length;
-    if ((aCount === 0) !== (bCount === 0)) return aCount === 0 ? 1 : -1;
     return (a.name || "").localeCompare(b.name || "");
   });
   return people;

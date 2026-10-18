@@ -721,6 +721,10 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   display: block; width: 22px; height: 22px; border-radius: 50%;
   background: var(--ig-blue); border: 3px solid #fff; animation: pulse 2s ease-out infinite;
 }
+/* Live dots glide to each new position (Leaflet moves markers with transform) */
+.leaflet-marker-icon.map-me, .leaflet-marker-icon.map-other { transition: transform 1.2s linear; }
+.no-glide .leaflet-marker-icon { transition: none !important; }
+
 /* Profile-address dot (no live location): solid, no pulse */
 .map-me:not(.live) span { animation: none; background: #6b6b73; }
 .map-from { margin: 8px 0 0; font-size: 0.86rem; }
@@ -867,3 +871,12 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   .community-grid { grid-template-columns: 1fr; }
   .community-card { aspect-ratio: auto; min-height: 280px; }
 }
+
+/* Community: people and items open the board */
+button.community-card-top { width: 100%; padding: 4px; margin: -4px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+button.community-card-top:hover, button.community-card-top:focus-visible { background: var(--border); }
+.community-open { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 2px 4px; margin: -2px -4px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; }
+button.community-open { cursor: pointer; }
+button.community-open:hover .what strong, button.community-open:focus-visible .what strong { text-decoration: underline; }
+.card.post.focused { animation: focus-flash 2.2s ease-out; }
+@keyframes focus-flash { 0%, 40% { box-shadow: 0 0 0 3px #3797f0; } 100% { box-shadow: 0 0 0 3px transparent; } }

@@ -29,7 +29,7 @@ export function useDeviceLocation(wanted) {
         console.warn("Device location error:", err.code, err.message);
         setState((s) => ({ pos: s.pos, status: err.code === 1 ? "denied" : s.pos ? "on" : "unavailable" }));
       },
-      { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 } // fresh fixes so the dot keeps up
     );
     return () => navigator.geolocation.clearWatch(id);
   }, [wanted, attempt]);
