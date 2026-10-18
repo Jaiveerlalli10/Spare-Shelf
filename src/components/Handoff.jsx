@@ -6,7 +6,8 @@ import { otherParty } from "../reviews";
 
 const firstName = (name) => (name || "them").split(" ")[0];
 
-export default function Handoff({ post, user, onReview }) {
+// `agreed`: both people accepted a pickup spot. Until then, nobody can confirm the hand-off.
+export default function Handoff({ post, user, onReview, agreed }) {
   const [busy, setBusy] = useState(false);
   const [didConfirm, setDidConfirm] = useState(false);
   const [mine, setMine] = useState(null);
@@ -48,7 +49,7 @@ export default function Handoff({ post, user, onReview }) {
 
   return (
     <>
-      {post.status === "claimed" && !iConfirmed && (
+      {post.status === "claimed" && !iConfirmed && agreed && (
         <>
           {theyConfirmed && <span className="muted">{other.name} confirmed ✓</span>}
           <button className="btn primary" onClick={confirm} disabled={busy}>{busy ? "Saving…" : label}</button>

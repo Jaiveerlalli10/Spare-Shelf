@@ -117,7 +117,7 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
           <button className="btn ghost" onClick={() => onDirections(post)}>🧭 Directions</button>
         )}
         {actions}
-        {user && inChat && post.status !== "open" && <Handoff post={post} user={user} onReview={onReview} />}
+        {user && inChat && post.status !== "open" && <Handoff post={post} user={user} onReview={onReview} agreed={Boolean(pickup?.accepted)} />}
       </div>
       </div>
       </div>

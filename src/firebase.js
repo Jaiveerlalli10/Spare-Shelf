@@ -1,6 +1,7 @@
 // Connects to Firebase using the keys in .env.local.
 // If no keys are set, `firebaseReady` is false and the app uses demo mode instead.
 import { initializeApp } from "firebase/app";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
@@ -15,6 +16,18 @@ const config = {
 
 export const firebaseReady = Boolean(config.apiKey && config.projectId);
 
-const app = firebaseReady ? initializeApp(config) : null;
+export const app = firebaseReady ? initializeApp(config) : null;
+
+// App Check: proves requests come from this app, so others can't use our Gemini quota.
+// On localhost a debug token is printed in the browser console the first time; add it in
+// Firebase console > App Check > Apps > Manage debug tokens (once per browser).
+const recaptchaKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+if (app && recaptchaKey) {
+  if (import.meta.env.DEV) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider(recaptchaKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;

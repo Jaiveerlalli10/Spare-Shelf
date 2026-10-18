@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { createPost, watchPantry } from "../data";
 import { activeOffersByPantryItem } from "../matching";
+import { aiReady, describeFoodPhoto } from "../ai";
+import { readFoodPhoto } from "../photo";
 
 const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn: "", estValue: "", notes: "", pantryItemId: "", pickup: null };
 
@@ -29,6 +31,36 @@ export default function PostForm({ user, posts, origin, homeLabel, onDone, initi
   }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // Gemini reads a food photo and fills in the ingredient, amount, value, best-by date and notes.
+  const [reading, setReading] = useState(false);
+  const [photoNote, setPhotoNote] = useState("");
+  async function fillFromPhoto(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setReading(true);
+    setPhotoNote("");
+    setError("");
+    try {
+      const found = await describeFoodPhoto(await readFoodPhoto(file));
+      const validDate = /^\d{4}-\d{2}-\d{2}$/.test(found.expiresOn || "");
+      setForm((f) => ({
+        ...f,
+        pantryItemId: "", // a new item, not one picked from the pantry
+        item: found.item,
+        quantity: found.quantity || f.quantity,
+        estValue: found.estValue ? String(Math.round(found.estValue * 2) / 2) : f.estValue,
+        expiresOn: validDate ? found.expiresOn : f.expiresOn,
+        notes: found.notes || f.notes,
+      }));
+      setPhotoNote("✨ Filled in from your photo. Check it over before posting.");
+    } catch (err) {
+      setError("Couldn't read the photo: " + err.message);
+    } finally {
+      setReading(false);
+    }
+  }
 
   // One handler for every input: uses the input's `name` to know which field to update.
   const update = (e) => setForm({ ...form, [e.target.name]: e.target.value });
@@ -60,6 +92,15 @@ export default function PostForm({ user, posts, origin, homeLabel, onDone, initi
         <button type="button" className={form.type === "offer" ? "chip active" : "chip"}
           onClick={() => setForm({ ...form, type: "offer" })}>I have extra</button>
       </div>
+      {aiReady && (
+        <div className="ai-photo">
+          <label className={`file-btn btn ghost${reading ? " disabled" : ""}`}>
+            {reading ? "Reading photo…" : "📷 Fill in from a photo"}
+            <input type="file" accept="image/*" onChange={fillFromPhoto} disabled={reading} />
+          </label>
+          {photoNote && <span className="muted">{photoNote}</span>}
+        </div>
+      )}
       {form.type === "offer" && (
         <label>From your pantry
           <select value={form.pantryItemId} onChange={pickPantryItem}>

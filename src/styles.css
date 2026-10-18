@@ -1030,3 +1030,11 @@ button.community-open:hover .what strong, button.community-open:focus-visible .w
 
 .history-actions { display: flex; justify-content: flex-end; margin: 0 0 12px; }
 .btn.danger { color: var(--tomato); border-color: var(--tomato); }
+
+/* ---------- Gemini (AI) bits ---------- */
+.ai-photo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.file-btn.disabled { opacity: 0.6; pointer-events: none; }
+.ai-ideas { margin: 0 0 18px; }
+.ai-ideas-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.ai-ideas-head h3 { margin: 0; }
+.ai-ideas .error { margin: 0 0 10px; }
