@@ -65,6 +65,10 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
 
   return (
     <article id={`post-${post.id}`} className={`card post ${post.type}${focused ? " focused" : ""}`} style={{ "--i": Math.min(index, 8) }}>
+      <div className="ticket-head">
+        <span className="ticket-kind">{isOffer ? "Offer" : "Request"}</span>
+      </div>
+      <div className="ticket-body">
       <div className="post-emoji" aria-hidden>{foodEmoji(post.item)}</div>
       <div className="post-body">
       {/* Reads as a sentence: "Lucas is requesting Sugar · 1 cup" */}
@@ -114,6 +118,7 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
         )}
         {actions}
         {user && inChat && post.status !== "open" && <Handoff post={post} user={user} onReview={onReview} />}
+      </div>
       </div>
       </div>
     </article>

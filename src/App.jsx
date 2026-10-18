@@ -15,6 +15,7 @@ import Community from "./components/Community";
 import { communityId } from "./community";
 import { milesToPost, publicPlaceLabel } from "./location";
 import MapPanel from "./components/MapPanel";
+import { EmptyShelf } from "./components/KitchenArt";
 import { useDeviceLocation } from "./useDeviceLocation";
 import { useLiveSharing } from "./useLiveSharing";
 
@@ -34,6 +35,14 @@ export default function App() {
   const [openChatWith, setOpenChatWith] = useState(null); // uid of the person whose chat is open
   const [mapTargetId, setMapTargetId] = useState(null); // post shown with directions on the map
   const [reviewPost, setReviewPost] = useState(null);
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem("spareShelf.theme") === "light" ? "light" : "dark"; }
+    catch { return "dark"; }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("spareShelf.theme", theme); } catch { /* private browsing */ }
+  }, [theme]);
   const uid = user ? user.uid : null;
   // Posts you were declined on for good are hidden from you everywhere.
   const posts = allPosts.filter((p) => !(p.status === "open" && declinedHandoff(p, user)));
@@ -394,10 +403,17 @@ export default function App() {
       {/* ---------- Left column: brand, you, navigation, impact ---------- */}
       <aside className="sidebar">
         <div className="brand">
-          <span className="logo" aria-hidden>🥫</span>
+          <span className="logo" aria-hidden>
+            <span className="logo-row"><span>🫙</span><span>🍋</span></span>
+            <span className="logo-plank" />
+            <span className="logo-row"><span>🌿</span><span>🍞</span></span>
+            <span className="logo-plank" />
+            <span className="logo-row"><span>🥕</span><span>🥛</span></span>
+            <span className="logo-plank" />
+          </span>
           <div>
             <h1>Spare Shelf</h1>
-            <p className="tagline">Borrow a cup of sugar from your neighbors.</p>
+            <p className="tagline">The missing ingredient is next door.</p>
           </div>
         </div>
 
@@ -453,6 +469,10 @@ export default function App() {
             <ImpactBar posts={posts} />
           </section>
         )}
+
+        <button className="btn ghost block" onClick={() => setTheme(theme === "light" ? "dark" : "light")}>
+          {theme === "light" ? "Dark mode" : "Light mode"}
+        </button>
 
         <p className="sidebar-note">
           Only share sealed or fresh food, list allergens in the notes, and meet in public spots.
@@ -530,13 +550,16 @@ export default function App() {
             {!user && !isDemoMode ? (
               <p className="empty">Sign in to see what your neighbors are sharing.</p>
             ) : visible.length === 0 ? (
-              <p className="empty">
-                {activeTab === "history"
-                  ? "Nothing shared yet. Finished hand-offs show up here."
-                  : activeTab === "mine"
-                    ? "Nothing in progress. Post something or claim a neighbor's offer."
-                    : "Nothing here yet. Be the first to post!"}
-              </p>
+              <div className="empty">
+                {activeTab === "board" && <EmptyShelf />}
+                <p>
+                  {activeTab === "history"
+                    ? "Nothing shared yet. Finished hand-offs show up here."
+                    : activeTab === "mine"
+                      ? "Nothing in progress. Post something or claim a neighbor's offer."
+                      : "Nothing here yet. Be the first to post!"}
+                </p>
+              </div>
             ) : (
               visible.map((p, i) => (
                 <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onClaim={claim} onReview={setReviewPost} onDirections={showDirections}

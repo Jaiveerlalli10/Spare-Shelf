@@ -67,7 +67,7 @@ function PersonSquare({ person, mine, onClaim, onOpenPost, onOpenPerson }) {
     ? `${score} stars from ${summary.count} review${summary.count === 1 ? "" : "s"}`
     : "No ratings yet";
   return (
-    <li className="card community-card">
+    <div className={`card community-card${mine ? " mine" : ""}`}>
       <button type="button" className="community-card-top" onClick={() => onOpenPerson(person)}
         title={mine ? "Show My posts" : `Show ${person.name}'s posts on the board`}>
         <Avatar name={person.name} photoURL={person.photoURL} size="md" />
@@ -94,7 +94,23 @@ function PersonSquare({ person, mine, onClaim, onOpenPost, onOpenPerson }) {
         <Column title="Offering" tone="offers" posts={person.offers} empty="Nothing offered right now" mine={mine} onClaim={onClaim} onOpen={onOpenPost} />
         <Column title="Looking to buy" tone="requests" posts={person.requests} empty="Not looking for anything right now" mine={mine} onClaim={onClaim} onOpen={onOpenPost} />
       </div>
-    </li>
+    </div>
+  );
+}
+
+function CommunityGrid({ people, user, onClaim, onOpenPost, onOpenPerson }) {
+  const mine = people.find((person) => person.uid === user.uid);
+  const others = people.filter((person) => person.uid !== user.uid);
+  const squares = (list, isMine) => list.map((person) => (
+    <PersonSquare key={person.uid} person={person} mine={isMine} onClaim={onClaim}
+      onOpenPost={onOpenPost} onOpenPerson={onOpenPerson} />
+  ));
+  if (!mine) return <div className="community-grid">{squares(people, false)}</div>;
+  return (
+    <div className="community-layout">
+      <div className="community-pin">{squares([mine], true)}</div>
+      {others.length > 0 && <div className="community-grid">{squares(others, false)}</div>}
+    </div>
   );
 }
 
@@ -169,12 +185,7 @@ export default function Community({ user, profile, posts, onOpenPost, onOpenPers
       ) : term && people.length === 0 ? (
         <p className="empty">No one in {place} matches “{term}”.</p>
       ) : (
-        <ul className="community-grid">
-          {people.map((person) => (
-            <PersonSquare key={person.uid} person={person} mine={person.uid === user.uid} onClaim={onClaim}
-              onOpenPost={onOpenPost} onOpenPerson={onOpenPerson} />
-          ))}
-        </ul>
+        <CommunityGrid people={people} user={user} onClaim={onClaim} onOpenPost={onOpenPost} onOpenPerson={onOpenPerson} />
       )}
     </section>
   );

@@ -16,23 +16,23 @@
   --teal: #6ca594;   /* second accent: offers, "agreed", success */
   --mint: #a7f0e0;   /* highlights: title, links, focus rings */
 
-  /* Dark shades of the brown, so the app stays dark */
-  --ink: color-mix(in srgb, var(--brown) 22%, #000);
-  --wood: color-mix(in srgb, var(--brown) 34%, #000);
+  /* Dark base is deep spruce. The brown stays for light mode and the warm accents. */
+  --ink: #101816;
+  --wood: #1a2622;
   --cream: var(--peach);
   --sage: var(--teal);
 
-  /* Derived shades (same five colors, just mixed) */
+  /* Derived shades */
   --bg: var(--ink);
-  --glow: color-mix(in srgb, var(--clay) 12%, transparent);
+  --glow: color-mix(in srgb, var(--teal) 18%, transparent);
   --surface: var(--wood);
   --surface-solid: var(--wood);
-  --surface-2: color-mix(in srgb, var(--brown) 42%, #000);
-  --surface-3: color-mix(in srgb, var(--brown) 52%, #000);
+  --surface-2: #24332e;
+  --surface-3: #2e403a;
   --text: var(--cream);
-  --muted: color-mix(in srgb, var(--cream) 62%, var(--ink));
-  --faint: color-mix(in srgb, var(--cream) 35%, var(--ink));
-  --border: color-mix(in srgb, var(--brown) 70%, transparent);
+  --muted: color-mix(in srgb, #c5ddd4 62%, var(--ink));
+  --faint: color-mix(in srgb, #c5ddd4 34%, var(--ink));
+  --border: color-mix(in srgb, var(--teal) 38%, #1a2622);
   --clay-bg: color-mix(in srgb, var(--clay) 20%, var(--wood));
   --sage-bg: color-mix(in srgb, var(--sage) 20%, var(--wood));
   --clay-ring: color-mix(in srgb, var(--clay) 28%, transparent);
@@ -63,6 +63,29 @@
   color-scheme: dark;
 }
 
+/* Light mode: same five colors, on warm paper instead of dark wood. */
+:root[data-theme="light"] {
+  --bg: #f6efe8;
+  --glow: color-mix(in srgb, var(--peach) 50%, transparent);
+  --surface: #fffdfb;
+  --surface-solid: #fffdfb;
+  --surface-2: #f4e8df;
+  --surface-3: #ead9cc;
+  --text: #3a2418;
+  --muted: #7d5c49;
+  --faint: #a88874;
+  --border: color-mix(in srgb, var(--brown) 28%, #fff);
+  --clay-bg: #f8e6dc;
+  --sage-bg: #e4f3ee;
+  --clay-ring: color-mix(in srgb, var(--clay) 32%, transparent);
+  --sage-ring: color-mix(in srgb, var(--teal) 32%, transparent);
+  --on-accent: #3a2418;
+  --grad-title: #2f6d5e;
+  --shadow: 0 1px 0 rgba(143, 87, 59, 0.05), 0 12px 28px -18px rgba(90, 48, 28, 0.4);
+  --shadow-lift: 0 2px 0 rgba(143, 87, 59, 0.06), 0 18px 36px -18px rgba(90, 48, 28, 0.35);
+  color-scheme: light;
+}
+
 /* Section tones */
 .tone-basil, .stat.basil     { --c: var(--basil);   --c-bg: var(--basil-bg); }
 .tone-tomato, .stat.tomato   { --c: var(--tomato);  --c-bg: var(--tomato-bg); }
@@ -83,7 +106,7 @@ body {
   background: radial-gradient(1200px 700px at 50% -15%, var(--glow), transparent 70%), var(--bg);
   background-attachment: fixed;
 }
-/* Faint paper grain, so the brown doesn't look flat */
+/* Faint paper grain, so the background doesn't look flat */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: 0.06;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -121,11 +144,13 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 
 .brand { display: flex; align-items: center; gap: 12px; }
 .logo {
-  display: grid; place-items: center; flex-shrink: 0;
-  width: 52px; height: 52px; border-radius: 0; font-size: 1.7rem;
-  background: var(--grad-warm); box-shadow: none;
-  transform: rotate(-7deg); animation: bob 6s ease-in-out infinite;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 1px;
+  flex-shrink: 0; overflow: hidden; width: 52px; height: 52px; padding: 4px 5px 3px; border-radius: 0;
+  background: var(--clay); box-shadow: 0 14px 28px -14px var(--clay), inset 3px 0 0 var(--on-accent), inset -3px 0 0 var(--on-accent);
+  transform: rotate(-5deg);
 }
+.logo-row { display: flex; align-items: flex-end; justify-content: space-evenly; height: 11px; font-size: 0.62rem; line-height: 1; }
+.logo-plank { flex-shrink: 0; height: 2px; background: var(--on-accent); }
 .brand h1 {
   margin: 0; font-size: 1.6rem; font-weight: 800; line-height: 1.1;
   background: var(--grad-title); -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -268,17 +293,52 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 /* ---------- Post cards ---------- */
 .feed { display: flex; flex-direction: column; }
 .post {
-  position: relative; overflow: hidden; display: flex; gap: 16px; align-items: flex-start;
-  padding: 16px 18px 16px 22px;
+  position: relative; display: flex; flex-direction: column; gap: 12px; align-items: stretch;
+  padding: 18px 18px 16px;
+  border-style: dashed;
+  background-image: radial-gradient(circle at 10px 0, var(--bg) 4.5px, transparent 5px);
+  background-size: 20px 12px;
+  background-repeat: repeat-x;
   transition: transform 0.2s, box-shadow 0.25s;
   animation: rise 0.45s ease both; animation-delay: calc(var(--i, 0) * 45ms);
 }
-.post.offer   { --accent: var(--offer);   --accent-bg: var(--offer-bg); }
-.post.request { --accent: var(--request); --accent-bg: var(--request-bg); }
+.post.offer, .post.request { color: var(--text); }
+.post.offer .meta, .post.offer .qty,
+.post.request .meta, .post.request .qty { color: var(--muted); }
+.post .notes { background: color-mix(in srgb, var(--accent) 18%, var(--wood)); color: inherit; }
+.post.offer {
+  --accent: var(--teal);
+  --accent-bg: var(--sage-bg);
+  background-color: color-mix(in srgb, var(--teal) 34%, var(--wood));
+}
+.post.request {
+  --accent: var(--clay);
+  --accent-bg: var(--clay-bg);
+  background-color: color-mix(in srgb, var(--clay) 34%, var(--wood));
+}
+:root[data-theme="light"] .post.offer {
+  --accent: #2f6d5e;
+  --accent-bg: var(--sage-bg);
+  background-color: var(--sage-bg);
+}
+:root[data-theme="light"] .post.request {
+  --accent: #8f573b;
+  --accent-bg: var(--clay-bg);
+  background-color: var(--clay-bg);
+}
+:root[data-theme="light"] .post .notes { background: color-mix(in srgb, var(--accent) 14%, #fff); color: #1c2822; }
 .post::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px;
   background: var(--accent);
 }
+.ticket-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  padding-bottom: 8px; border-bottom: 1px dashed var(--border);
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+}
+.ticket-kind { color: var(--accent); }
+.ticket-body { display: flex; gap: 16px; align-items: flex-start; min-width: 0; }
 .post:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); }
 .post-emoji {
   display: grid; place-items: center; flex-shrink: 0;
@@ -322,6 +382,12 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   text-align: center; color: var(--muted); padding: 48px 16px;
   font-family: var(--font-display); font-size: 1.15rem;
 }
+.empty p { margin: 0; font: inherit; color: inherit; }
+.empty-shelf {
+  display: block; width: 200px; height: 120px; margin: 0 auto 16px;
+  fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
+}
+.empty-shelf .solid { fill: currentColor; stroke: none; }
 .hint { color: var(--muted); font-size: 0.84rem; margin: 4px 0 10px; }
 .section-label { font-weight: 800; margin: 18px 0 8px; }
 .auth-lead { margin-top: 0; }
@@ -591,7 +657,6 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 /* ---------- Animations ---------- */
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes pop { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: none; } }
-@keyframes bob { 0%, 100% { transform: rotate(-7deg) translateY(0); } 50% { transform: rotate(-3deg) translateY(-3px); } }
 @keyframes shimmer { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -611,7 +676,8 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   .sidebar .stat span:last-child { font-size: 0.64rem; line-height: 1.2; }
   .sidebar-heading { margin-bottom: 6px; }
   .sidebar-note { display: none; }
-  .logo { width: 44px; height: 44px; font-size: 1.4rem; }
+  .logo { width: 44px; height: 44px; padding: 3px 4px 2px; }
+  .logo-row { height: 9px; font-size: 0.52rem; }
   .brand h1 { font-size: 1.4rem; }
   .page-head h2 { font-size: 1.6rem; }
   .page-icon { width: 50px; height: 50px; font-size: 1.5rem; }
@@ -620,7 +686,8 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 @media (max-width: 520px) {
   .impact { grid-template-columns: 1fr 1fr; }
   .form .row { flex-direction: column; gap: 0; }
-  .post { gap: 12px; padding: 14px 14px 14px 18px; }
+  .post { padding: 16px 14px 14px; }
+  .ticket-body { gap: 12px; }
   .post-emoji { width: 48px; height: 48px; font-size: 1.6rem; border-radius: 0; }
   .card.recipe-hero { flex-direction: column; text-align: center; }
 }
@@ -712,8 +779,11 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 
 /* Leaflet, restyled for the dark theme */
 .leaflet-container { background: #0b0b0d; font-family: var(--font-body); }
-/* Turn the light OpenStreetMap tiles into a dark map */
+/* Turn the light OpenStreetMap tiles into a dark map. Light mode uses the tiles as they are. */
 .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.6); }
+:root[data-theme="light"] .leaflet-tile-pane { filter: none; }
+:root[data-theme="light"] .leaflet-container { background: #e7e0d8; }
+:root[data-theme="light"] .leaflet-control-attribution { background: rgba(255, 253, 251, 0.88) !important; }
 .leaflet-bar { border: 1px solid var(--border) !important; border-radius: 10px !important; overflow: hidden; box-shadow: var(--shadow) !important; }
 .leaflet-bar a, .leaflet-bar a:hover {
   width: 36px !important; height: 36px !important; line-height: 34px !important;
@@ -831,6 +901,25 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 .map-steps li::marker { color: var(--clay); font-weight: 800; }
 .map-steps li:last-child { border-bottom: 0; }
 
+/* Wide screens: the map column keeps its width and the map fills the right side. */
+@media (min-width: 1201px) {
+  .layout.with-map .map-panel {
+    height: calc(100vh - 48px);
+    max-height: calc(100vh - 48px);
+    overflow: hidden;
+  }
+  .layout.with-map .map-wrap {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+  }
+  .layout.with-map .map-card {
+    max-height: 32vh;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+}
+
 /* Medium screens: map moves above the page content, next to the sidebar */
 @media (max-width: 1200px) {
   .layout.with-map { grid-template-columns: 280px minmax(0, 1fr); }
@@ -856,9 +945,22 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   list-style: none; margin: 0; padding: 0;
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
 }
+.community-layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; align-items: start;
+}
+.community-layout .community-grid { grid-template-columns: 1fr 1fr; }
+.community-pin { position: sticky; top: 12px; z-index: 2; min-width: 0; }
 .community-card {
   aspect-ratio: 1; margin: 0; padding: 12px; min-width: 0;
   display: flex; flex-direction: column; overflow: hidden;
+}
+.community-card.mine {
+  background-color: color-mix(in srgb, var(--teal) 34%, var(--wood));
+  border-color: var(--teal);
+}
+:root[data-theme="light"] .community-card.mine {
+  background-color: var(--sage-bg);
+  border-color: #2f6d5e;
 }
 .community-card-top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .community-card-top .avatar { flex-shrink: 0; }
@@ -890,9 +992,12 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 .community-item .btn.small { flex-shrink: 0; padding: 3px 8px; font-size: 0.72rem; }
 @container (max-width: 720px) {
   .community-grid { grid-template-columns: 1fr 1fr; }
+  .community-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .community-layout .community-grid { grid-template-columns: 1fr; }
 }
 @container (max-width: 460px) {
   .community-grid { grid-template-columns: 1fr; }
+  .community-layout, .community-layout .community-grid { grid-template-columns: 1fr; }
   .community-card { aspect-ratio: auto; min-height: 280px; }
 }
 
