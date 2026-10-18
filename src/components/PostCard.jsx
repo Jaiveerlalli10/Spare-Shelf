@@ -5,7 +5,7 @@ import Handoff from "./Handoff";
 import LiveNote from "./LiveNote";
 import Reputation from "./Reputation";
 import { milesToPost, milesBetween, awayLabel, tripFor } from "../location";
-import { handoffRoles, pickupProposer } from "../data";
+import { canSuggestPickup, handoffRoles, pickupProposer } from "../data";
 import { foodEmoji } from "../foodEmoji";
 
 function timeAgo(ms) {
@@ -100,9 +100,9 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
           onAcceptPickup={onAcceptPickup} onDeclinePickup={onDeclinePickup} liveShare={liveShare} />
       )}
       <div className="actions">
-        {/* The giver suggests where to meet. After a decline, either person can suggest a spot. */}
+        {/* Pickup spots take turns: the giver suggests first, and after a decline the decliner suggests next. */}
         {user && onChoosePickup && (post.status === "claimed"
-          ? inChat && (handoffRoles(post).giverId === user.uid || declinedPickup || (pickup && pickupProposer(post, pickup) === user.uid))
+          ? canSuggestPickup(post, user, pickup, declinedPickup)
           : isMine && post.type === "offer" && post.status === "open") && (
           <button className="btn ghost" onClick={() => onChoosePickup(post)}>
             📍 {pickup ? `Pickup: ${pickup.label}` : declinedPickup ? "Suggest a spot" : "Choose pickup spot"}
@@ -137,7 +137,7 @@ function PickupStatus({ post, user, pickup, declined, onAcceptPickup, onDeclineP
       return (
         <p className="card-pickup declined">
           {mineWasDeclined
-            ? <>❌ {otherName} declined <strong>{declined.label}</strong>. Suggest another spot.</>
+            ? <>❌ {otherName} declined <strong>{declined.label}</strong>. Waiting for {otherName} to suggest another spot.</>
             : <>❌ You declined <strong>{declined.label}</strong>. Suggest a spot that works for you.</>}
         </p>
       );

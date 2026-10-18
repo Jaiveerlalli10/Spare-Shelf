@@ -670,6 +670,20 @@ export function pickupProposer(post, pickup) {
   return (pickup && pickup.setBy) || handoffRoles(post).giverId;
 }
 
+/**
+ * Whose turn it is to suggest a pickup spot in a claimed hand-off. It takes turns:
+ * - nothing suggested yet: the giver
+ * - a spot is waiting for an answer, or was accepted: nobody (the other person accepts or declines)
+ * - the last spot was declined: only the person who declined it, since they're the one with the issue
+ */
+export function canSuggestPickup(post, user, pickup, declined) {
+  if (!user || post.status !== "claimed") return false;
+  if (post.ownerId !== user.uid && post.claimedById !== user.uid) return false;
+  if (pickup) return false;
+  if (declined) return pickupProposer(post, declined) !== user.uid;
+  return handoffRoles(post).giverId === user.uid;
+}
+
 /** Either person suggests (or changes) the pickup spot for a claimed post; the chat gets a message about it. */
 export async function setPickupSpot(user, post, spot) {
   const other = otherInPost(post, user);

@@ -6,7 +6,7 @@ import "leaflet/dist/leaflet.css";
 import { foodEmoji } from "../foodEmoji";
 import { walkingRoute, stepText, formatWalkDistance } from "../directions";
 import { noTripReason, tripFor } from "../location";
-import { handoffRoles, pickupProposer, pairId, watchLiveLocation, LIVE_FRESH_MS } from "../data";
+import { canSuggestPickup, handoffRoles, pickupProposer, pairId, watchLiveLocation, LIVE_FRESH_MS } from "../data";
 import { searchPlaces, reverseGeocode } from "../geocode";
 import LiveNote from "./LiveNote";
 
@@ -165,6 +165,10 @@ export default function MapPanel({
   const declinedSpot = target && inHandoff ? declinedPickups[target.id] : null;
   const iProposed = Boolean(targetPickup && user && inHandoff && pickupProposer(target, targetPickup) === user.uid);
   const showPickupBox = iGive || iProposed || Boolean(declinedSpot && !targetPickup);
+  // Open offers: the poster sets the listed spot. Claimed: whoever's turn it is.
+  const mySuggestTurn = target && target.status === "claimed"
+    ? canSuggestPickup(target, user, targetPickup, declinedSpot)
+    : Boolean(openOffer && iGive);
 
   // Where the route ends; like routeFrom, only moves after REROUTE_METERS so it doesn't jitter.
   const [routeTo, setRouteTo] = useState(null);
@@ -523,13 +527,14 @@ export default function MapPanel({
                 </span>
               ) : declinedSpot ? (
                 <span>
-                  ❌ {pickupProposer(target, declinedSpot) === user.uid ? `${otherName} declined` : "You declined"}{" "}
-                  <strong>{declinedSpot.label}</strong>. Suggest another spot.
+                  {pickupProposer(target, declinedSpot) === user.uid
+                    ? <>❌ {otherName} declined <strong>{declinedSpot.label}</strong>. Waiting for {otherName} to suggest another spot.</>
+                    : <>❌ You declined <strong>{declinedSpot.label}</strong>. Suggest another spot.</>}
                 </span>
               ) : (
                 <span>Choose where {openOffer ? "neighbors" : otherName} should pick it up.</span>
               )}
-              {onChoosePickup && (
+              {onChoosePickup && mySuggestTurn && (
                 <button className="btn small ghost" onClick={() => onChoosePickup(target)}>
                   {targetPickup ? "Change" : declinedSpot ? "📍 Suggest a spot" : "📍 Choose pickup spot"}
                 </button>
@@ -537,7 +542,7 @@ export default function MapPanel({
             </div>
           )}
           {!goal && !iGive && <p className="muted">{noTripReason(target, user)}</p>}
-          {iGive && !targetPickup && (
+          {iGive && !targetPickup && !declinedSpot && (
             <p className="muted">Once you choose a pickup spot, you'll both get directions to it.</p>
           )}
           {targetPickup && otherToWatch && (
