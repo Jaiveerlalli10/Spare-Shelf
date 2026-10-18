@@ -7,6 +7,8 @@ import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
 import Pantry from "./components/Pantry";
 import ProfileSetup from "./components/ProfileSetup";
+import MyReviews from "./components/MyReviews";
+import Reputation from "./components/Reputation";
 import Avatar from "./components/Avatar";
 import Recipes from "./components/Recipes";
 import Messages from "./components/Messages";
@@ -22,7 +24,7 @@ import { useLiveSharing } from "./useLiveSharing";
 export default function App() {
   const [user, setUser] = useState(null);
   const [allPosts, setPosts] = useState([]);
-  const [tab, setTab] = useState("board"); // "board", "community", "mine", "history", "pantry", "recipes" or "messages"
+  const [tab, setTab] = useState("board"); // "board", "community", "mine", "history", "pantry", "recipes", "reviews" or "messages"
   const [filter, setFilter] = useState("all"); // "all", "offer", "request"
   const [sort, setSort] = useState("newest"); // "newest" or "nearest"
   const [radius, setRadius] = useState(""); // "", or miles as a string: "0.5", "1", "2", "3", "4", "5"
@@ -35,15 +37,7 @@ export default function App() {
   // Clicking anywhere outside the profile editor (or its Profile button) closes it.
   const profilePanel = useRef(null);
   const profileButton = useRef(null);
-  useEffect(() => {
-    if (!editing) return;
-    function closeIfOutside(e) {
-      if (profilePanel.current?.contains(e.target) || profileButton.current?.contains(e.target)) return;
-      setEditing(false);
-    }
-    document.addEventListener("pointerdown", closeIfOutside);
-    return () => document.removeEventListener("pointerdown", closeIfOutside);
-  }, [editing]);
+  useCloseOnOutsideClick(editing, () => setEditing(false), profilePanel, profileButton);
   const [chats, setChats] = useState([]);
   const [openChatWith, setOpenChatWith] = useState(null); // uid of the person whose chat is open
   const [mapTargetId, setMapTargetId] = useState(null); // post shown with directions on the map
@@ -412,6 +406,7 @@ export default function App() {
     { id: "community", label: "Community", icon: "🏘️", tone: "berry", title: complete ? profile.housingLabel : "Community", sub: complete ? `Neighbors in ${profile.housingLabel}. Offer extras, or grab something without a trip to the store.` : "What your dorm or apartment is offering and looking for." },
     { id: "pantry", label: "Pantry", icon: "🥫", tone: "saffron", title: "Pantry", sub: "What you have at home. Only you can see this." },
     { id: "recipes", label: "Recipes", icon: "🍳", tone: "tomato", title: "Recipes", sub: "Cook with what you have. Borrow the rest." },
+    { id: "reviews", label: "Reviews", icon: "⭐", tone: "saffron", title: "Your reviews", sub: "What neighbors said after hand-offs with you." },
   ];
   const page = TABS.find((t) => t.id === activeTab);
 
@@ -447,6 +442,7 @@ export default function App() {
               <div className="user-card-text">
                 <strong>{user.name}</strong>
                 {complete && <span className="muted" title={profile.universityName}>{profile.housingLabel}</span>}
+                {complete && <Reputation uid={user.uid} tagLimit={0} />}
               </div>
             </div>
             <div className="user-card-actions">
@@ -540,6 +536,8 @@ export default function App() {
           <Pantry user={user} posts={posts} onShare={shareFromPantry} onMessage={openChat} />
         ) : activeTab === "recipes" ? (
           <Recipes user={user} profile={profile} onEditProfile={() => { setEditing(true); window.scrollTo({ top: 0 }); }} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} onClaim={claim} />
+        ) : activeTab === "reviews" ? (
+          <MyReviews user={user} />
         ) : activeTab === "messages" ? (
           <Messages user={user} chats={chats} openWith={openChatWith}
             onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} />
@@ -658,4 +656,17 @@ export default function App() {
       )}
     </div>
   );
+}
+
+// Calls close() when someone clicks anywhere outside the given elements (refs), while `open` is true.
+function useCloseOnOutsideClick(open, close, ...refs) {
+  useEffect(() => {
+    if (!open) return;
+    function closeIfOutside(e) {
+      if (refs.some((ref) => ref.current?.contains(e.target))) return;
+      close();
+    }
+    document.addEventListener("pointerdown", closeIfOutside);
+    return () => document.removeEventListener("pointerdown", closeIfOutside);
+  }, [open]);
 }

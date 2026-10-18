@@ -1079,3 +1079,13 @@ button.community-open:hover .what strong, button.community-open:focus-visible .w
 .taste-label { font-weight: 600; font-size: 0.9rem; margin-top: 6px; }
 .taste-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .taste-note { margin: 0 0 10px; font-size: 0.88rem; }
+
+/* ---------- Your reviews ---------- */
+.my-reviews-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 12px; }
+.my-reviews-score { color: var(--saffron); font-weight: 800; font-size: 1.3rem; }
+.my-reviews-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.my-review { display: flex; gap: 10px; align-items: flex-start; padding-top: 12px; border-top: 1px solid var(--border); }
+.my-review-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.my-review-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.my-review-stars { color: var(--saffron); letter-spacing: 1px; }
+.my-review-note { margin: 4px 0 0; }
