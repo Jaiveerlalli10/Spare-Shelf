@@ -10,7 +10,8 @@ export default endpoint(async (req) => {
   if (!snap.exists) return { connected: false, ready: false };
 
   const account = await stripe().accounts.retrieve(snap.data().accountId);
-  const ready = Boolean(account.details_submitted && account.charges_enabled && account.capabilities?.transfers === "active");
+  // Recipients only need to be able to receive transfers (they never take cards themselves).
+  const ready = Boolean(account.details_submitted && account.capabilities?.transfers === "active");
   await ref.update({ ready, checkedAt: Date.now() });
   return { connected: true, ready };
 });

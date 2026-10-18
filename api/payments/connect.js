@@ -15,7 +15,8 @@ export default endpoint(async (req) => {
       country: "US",
       email: user.email || undefined,
       business_type: "individual",
-      capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
+      // Sellers are "recipients": buyers pay the platform, and Stripe transfers the money on to the seller.
+      capabilities: { transfers: { requested: true } },
       metadata: { uid: user.uid },
     });
     accountId = account.id;
