@@ -23,7 +23,10 @@ export const app = firebaseReady ? initializeApp(config) : null;
 // Firebase console > App Check > Apps > Manage debug tokens (once per browser).
 const recaptchaKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 if (app && recaptchaKey) {
-  if (import.meta.env.DEV) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  // Local dev: use the debug token from .env.local if there is one (already registered in the
+  // Firebase console), so every browser and private window works. Otherwise Firebase makes one
+  // per browser and prints it in the console once.
+  if (import.meta.env.DEV) self.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true;
   initializeAppCheck(app, {
     provider: new ReCaptchaEnterpriseProvider(recaptchaKey),
     isTokenAutoRefreshEnabled: true,
