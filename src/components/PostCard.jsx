@@ -4,6 +4,7 @@ import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
 import LiveNote from "./LiveNote";
 import Reputation from "./Reputation";
+import { isPaid, paymentFor, money } from "../payments";
 import { milesToPost, milesBetween, awayLabel, tripFor } from "../location";
 import { canSuggestPickup, handoffRoles, pickupProposer } from "../data";
 import { foodEmoji } from "../foodEmoji";
@@ -56,7 +57,7 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
   } else if (post.status === "open") {
     actions = (
       <button className="btn primary" onClick={() => onClaim(post)}>
-        {isOffer ? "I'll take it" : "I can help"}
+        {isPaid(post) ? `💳 Pay ${money(post.price)} & claim` : isOffer ? "I'll take it" : "I can help"}
       </button>
     );
   } else {
@@ -92,6 +93,7 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
         )}
         <span className="what">{post.item}</span>
         {post.quantity && <span className="qty"> · {post.quantity}</span>}
+        {isPaid(post) && <span className="price-tag">{money(post.price)}</span>}
       </h2>
       {!isMine && <Reputation uid={post.ownerId} />}
       <p className="meta">
@@ -103,6 +105,7 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
         )}
       </p>
       {post.notes && <p className="notes">{post.notes}</p>}
+      {user && inChat && <PaymentStatus post={post} user={user} />}
       {user && inChat && post.status === "claimed" && (
         <PickupStatus post={post} user={user} pickup={pickup} declined={declinedPickup}
           onAcceptPickup={onAcceptPickup} onDeclinePickup={onDeclinePickup} onDeclineForGood={onDeclineForGood} liveShare={liveShare} />
@@ -186,4 +189,18 @@ function PickupStatus({ post, user, pickup, declined, onAcceptPickup, onDeclineP
       {live}
     </div>
   );
+}
+
+/** Where the card payment stands, for the two people in a paid hand-off. */
+function PaymentStatus({ post, user }) {
+  const pay = paymentFor(post);
+  if (!pay) return null;
+  const amount = money(pay.amount / 100);
+  const buyer = pay.buyerId === user.uid;
+  const text = pay.status === "paid"
+    ? (buyer ? `💳 Paid ${amount}` : `💳 ${post.claimedByName} paid you ${amount}`)
+    : (buyer
+      ? `💳 ${amount} held on your card. It's charged after you both confirm the hand-off.`
+      : `💳 ${post.claimedByName}'s ${amount} is held. You get it after you both confirm the hand-off.`);
+  return <p className={`card-pay${pay.status === "paid" ? " paid" : ""}`}>{text}</p>;
 }

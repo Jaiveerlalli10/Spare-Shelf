@@ -6,6 +6,8 @@
 // {
 //   id, type: "offer" | "request", item, quantity, location, notes,
 //   expiresOn: "2026-10-20" | "", estValue: number (dollars),
+//   price: number (dollars, 0 = free; paid offers only, see payments.js),
+//   payment: { intentId, amount (cents), status: "authorized" | "paid", buyerId, sellerId } (written only by the server),
 //   ownerId, ownerName, ownerEmail,
 //   status: "open" | "claimed" | "completed",
 //   claimedById, claimedByName, claimedByEmail,
@@ -268,6 +270,8 @@ export async function createPost(user, fields) {
     notes: fields.notes.trim(),
     expiresOn: fields.expiresOn || "",
     estValue: Number(fields.estValue) || 0,
+    // Price in dollars for paid offers (0 = free). Only sellers with payouts set up can set one (see payments.js).
+    price: fields.type === "offer" ? Math.round((Number(fields.price) || 0) * 100) / 100 : 0,
     ownerId: user.uid,
     ownerName: user.name,
     ownerEmail: user.email,

@@ -10,16 +10,27 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
     }
 
+    // Paid offers: 0 (free) or $0.50–$100. Payment fields are written only by the payment server
+    // (api/payments, which uses the admin SDK and skips these rules), never by the app itself.
+    function priceOk(data) {
+      return !("price" in data) || (data.price is number && (data.price == 0 || (data.price >= 0.5 && data.price <= 100)));
+    }
+    function paymentUntouched() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(["payment"]);
+    }
+
     match /posts/{postId} {
       // Anyone signed in can read the board.
       allow read: if signedIn();
       // You can only create posts as yourself.
-      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if signedIn() && (
-        // The owner can change anything on their own post.
-        resource.data.ownerId == request.auth.uid ||
-        // Anyone can claim an open post.
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid
+        && priceOk(request.resource.data) && !("payment" in request.resource.data);
+      allow update: if signedIn() && paymentUntouched() && (
+        // The owner can change anything on their own post (except payment fields).
+        (resource.data.ownerId == request.auth.uid && priceOk(request.resource.data)) ||
+        // Anyone can claim an open, free post. Paid offers are claimed by the payment server after checkout.
         (resource.data.status == "open" &&
+         resource.data.get("price", 0) == 0 &&
          !(request.auth.uid in resource.data.get("declinedBy", [])) &&
          request.resource.data.claimedById == request.auth.uid &&
          onlyChanges(["status", "claimedById", "claimedByName", "claimedByEmail", "claimerApproxLat", "claimerApproxLng"])) ||
@@ -110,6 +121,13 @@ service cloud.firestore {
         && request.resource.data.name is string
         && request.resource.data.photoURL is string
         && request.resource.data.photoURL.size() < 200000;
+    }
+
+    // Payout setup (Stripe account) for each seller. Only the payment server writes it;
+    // you can read your own to see whether you can price offers.
+    match /stripeAccounts/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow write: if false;
     }
 
     // Each person's pantry is private: only they can read or change it.

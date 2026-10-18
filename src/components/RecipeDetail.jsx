@@ -2,6 +2,7 @@
 // and who on the board is offering the ones you need.
 import { findInPantry, findOffers } from "../matching";
 import { milesToPost, awayLabel } from "../location";
+import { isPaid, money } from "../payments";
 
 export default function RecipeDetail({ recipe, pantry, posts, user, here, onBack, onRequest, onMessage, onClaim }) {
   // Closest offers first; offers with no location go last.
@@ -59,7 +60,7 @@ export default function RecipeDetail({ recipe, pantry, posts, user, here, onBack
                             <button className="btn ghost small" onClick={() => onMessage(p)}>💬 Message</button>
                           </span>
                         ) : (
-                          <button className="btn primary small" onClick={() => onClaim(p)}>I'll take it</button>
+                          <button className="btn primary small" onClick={() => onClaim(p)}>{isPaid(p) ? `💳 Pay ${money(p.price)}` : "I'll take it"}</button>
                         )}
                       </li>
                     ))}

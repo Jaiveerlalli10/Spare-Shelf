@@ -5,6 +5,7 @@ import { milesBetween } from "../location";
 import { UNIVERSITIES, searchUniversities } from "../universities";
 import PhotoField from "./PhotoField";
 import TasteFields from "./TasteFields";
+import PayoutSetup from "./PayoutSetup";
 import { normalizeTaste } from "../taste";
 
 export default function ProfileSetup({ user, profile, required, onSaved }) {
@@ -267,6 +268,7 @@ export default function ProfileSetup({ user, profile, required, onSaved }) {
       </label>
 
       <TasteFields taste={taste} onChange={setTaste} firstTime={required} />
+      {!required && <PayoutSetup user={user} />}
 
       {error && <p className="error" role="alert">{error}</p>}
       <button className="btn primary" type="submit" disabled={saving}>

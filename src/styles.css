@@ -1089,3 +1089,18 @@ button.community-open:hover .what strong, button.community-open:focus-visible .w
 .my-review-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .my-review-stars { color: var(--saffron); letter-spacing: 1px; }
 .my-review-note { margin: 4px 0 0; }
+
+/* ---------- Payments (payments branch) ---------- */
+.price-tag {
+  display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 0.85em; font-weight: 800;
+  background: var(--offer-bg); color: var(--offer); vertical-align: middle;
+}
+.card-pay { margin: 6px 0 0; font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.card-pay.paid { color: var(--offer); }
+.pay-notice {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  margin: 0 0 14px; padding: 10px 14px; font-weight: 600; background: var(--clay-bg); border: 1px solid var(--border);
+}
+.pay-notice.ok { background: var(--sage-bg); }
+.payout-setup { display: flex; flex-direction: column; gap: 6px; }
+.payout-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

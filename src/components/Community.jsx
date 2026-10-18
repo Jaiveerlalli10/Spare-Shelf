@@ -5,6 +5,7 @@ import { communityId, communityPeople } from "../community";
 import { foodEmoji } from "../foodEmoji";
 import Avatar from "./Avatar";
 import { useReputation } from "./Reputation";
+import { isPaid, money } from "../payments";
 
 function ItemRow({ post, mine, onClaim, onOpen }) {
   const open = post.status === "open";
@@ -35,7 +36,7 @@ function ItemRow({ post, mine, onClaim, onOpen }) {
       {mine && !open && <span className="status claimed">Claimed</span>}
       {!mine && open && (
         <button className="btn primary small" onClick={() => onClaim(post)}>
-          {post.type === "offer" ? "I'll take it" : "I can help"}
+          {isPaid(post) ? `💳 Pay ${money(post.price)}` : post.type === "offer" ? "I'll take it" : "I can help"}
         </button>
       )}
       {!mine && !open && <span className="status claimed">Claimed</span>}

@@ -92,3 +92,27 @@ Open the link it prints (usually http://localhost:5173). Without Firebase keys t
 6. Do one full run on the live site: sign in, post an offer, claim it from a second account, agree on a pickup spot, confirm.
 
 Each teammate testing on localhost also needs their own App Check debug token: it's printed in the browser console the first time, and gets added under Firebase console → **App Check → Apps → ⋮ → Manage debug tokens**.
+
+## Payments (Stripe test mode, `payments` branch)
+
+Sellers can put a price on offers. The buyer's card is **held** when they claim, **charged** only after both people confirm the hand-off, and **released** if the hand-off is declined for good. Stripe handles all card and bank details; the browser never sees them or the secret key. Everything runs in Stripe **test mode**: use card `4242 4242 4242 4242`, any future date, any CVC. The server refuses live keys.
+
+How it fits together:
+
+| Where | What |
+| --- | --- |
+| `src/payments.js` | Browser side: "Pay & claim", payout setup, calls the server. |
+| `api/payments/*.js` | Server functions Vercel runs: `connect` + `status` (seller payouts), `checkout` (Stripe Checkout page), `confirm` (claims the post after paying), `capture` (charge after hand-off), `release` (cancel the hold). |
+| `firestore.rules` | Only the server can write `payment` and `stripeAccounts`; paid offers can't be claimed without paying. |
+
+Setup:
+
+1. Create a free account at https://dashboard.stripe.com and stay in **test mode**. Turn on **Connect** (Settings → Connect), choosing Express accounts.
+2. Copy the test **Secret key** (`sk_test_...`).
+3. Firebase console → **Project settings → Service accounts → Generate new private key**. Keep this file secret; never commit it.
+4. Add to `.env.local` (and to Vercel's Environment Variables for deploys): `VITE_PAYMENTS=on`, `STRIPE_SECRET_KEY`, `FIREBASE_SERVICE_ACCOUNT`.
+5. Publish the updated `firestore.rules`.
+6. Run locally with `npx vercel dev` (it runs the `/api` functions too; `npm run dev` doesn't).
+
+To try it: in Profile, **Set up payouts** (Stripe's test sign-up accepts fake details, like routing `110000000`, account `000123456789`, SSN `000-00-0000`). Post an offer with a price, then claim it from a second account.
+

@@ -4,9 +4,10 @@ import { createPost, watchPantry, mergePantryItems } from "../data";
 import { activeOffersByPantryItem } from "../matching";
 import { aiReady, describeFoodPhoto } from "../ai";
 import { readFoodPhoto } from "../photo";
+import { paymentsOn, watchSellerAccount, MIN_PRICE, MAX_PRICE, money } from "../payments";
 import { groupPantryItems } from "../pantryGroups";
 
-const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn: "", estValue: "", notes: "", pantryItemId: "", pickup: null };
+const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn: "", estValue: "", price: "", notes: "", pantryItemId: "", pickup: null };
 
 // `initial` (optional) pre-fills the form, e.g. when sharing an item from the pantry.
 // `posts` is used to hide pantry entries that are already on the board.
@@ -18,6 +19,10 @@ export default function PostForm({ user, posts, origin, homeLabel, onDone, initi
   const [pantry, setPantry] = useState([]);
 
   useEffect(() => watchPantry(user, setPantry), [user.uid]);
+  // Sellers with payouts set up can put a price on offers.
+  const [seller, setSeller] = useState(null);
+  useEffect(() => watchSellerAccount(user, setSeller), [user.uid]);
+  const canSell = paymentsOn && Boolean(seller?.ready);
 
   // Pantry entries you could offer: everything not already in an active offer.
   const onBoard = activeOffersByPantryItem(posts, user);
@@ -93,10 +98,15 @@ export default function PostForm({ user, posts, origin, homeLabel, onDone, initi
       setError("Please fill in the ingredient.");
       return;
     }
+    const price = form.type === "offer" && canSell ? Number(form.price) || 0 : 0;
+    if (price && (price < MIN_PRICE || price > MAX_PRICE)) {
+      setError(`Price has to be between ${money(MIN_PRICE)} and ${money(MAX_PRICE)}, or empty to give it away free.`);
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      await createPost(user, { ...form, location: homeLabel || "Near campus", origin });
+      await createPost(user, { ...form, price, location: homeLabel || "Near campus", origin });
       setForm(EMPTY);
       onDone();
     } catch (err) {
@@ -147,6 +157,14 @@ export default function PostForm({ user, posts, origin, homeLabel, onDone, initi
           <input name="estValue" type="number" min="0" step="0.5" value={form.estValue} onChange={update} placeholder="3" />
         </label>
       </div>
+      {form.type === "offer" && canSell && (
+        <label>Price ($, optional)
+          <input name="price" type="number" min="0" max={MAX_PRICE} step="0.25" value={form.price} onChange={update} placeholder="Leave empty to give it away free" />
+        </label>
+      )}
+      {form.type === "offer" && paymentsOn && !canSell && (
+        <p className="muted form-place">💳 Want to sell this instead of giving it away? Set up payouts in your profile first.</p>
+      )}
       {form.type === "offer" && (
         <label>Best by (optional)
           <input name="expiresOn" type="date" value={form.expiresOn} onChange={update} />

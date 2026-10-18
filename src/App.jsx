@@ -8,6 +8,7 @@ import PostCard from "./components/PostCard";
 import Pantry from "./components/Pantry";
 import ProfileSetup from "./components/ProfileSetup";
 import MyReviews from "./components/MyReviews";
+import { isPaid, paymentFor, payAndClaim, finishCheckout, capturePayment, releasePayment, refreshPayoutStatus, startPayoutSetup, paymentsOn } from "./payments";
 import Reputation from "./components/Reputation";
 import Avatar from "./components/Avatar";
 import Recipes from "./components/Recipes";
@@ -165,6 +166,59 @@ export default function App() {
     }
   }, [uid, here?.lat, here?.lng, posts]);
 
+  // ---------- Payments (see payments.js) ----------
+  // A short message at the top of the page, like "Payment held. ..." (null when hidden).
+  const [notice, setNotice] = useState(null);
+
+  // Coming back from Stripe: ?paid=… (Checkout done), ?paycancel=…, or ?stripe=return|refresh (payout setup).
+  useEffect(() => {
+    if (!uid || !paymentsOn) return;
+    const params = new URLSearchParams(window.location.search);
+    if (![...params.keys()].some((k) => ["paid", "paycancel", "stripe"].includes(k))) return;
+    window.history.replaceState(null, "", window.location.pathname); // so a refresh doesn't repeat this
+    if (params.get("session_id")) {
+      setNotice({ text: "Confirming your payment…" });
+      finishCheckout(params.get("session_id"))
+        .then(async (post) => {
+          await ensureChat(post);
+          setNotice({ text: `💳 ${post.item} is yours. The money is held on your card and only charged after you both confirm the hand-off.`, ok: true });
+          setTab("mine");
+          setFocusPostId(post.id);
+        })
+        .catch((err) => setNotice({ text: "Couldn't finish the payment: " + err.message }));
+    } else if (params.has("paycancel")) {
+      setNotice({ text: "Payment canceled. Nothing was charged." });
+    } else if (params.get("stripe") === "refresh") {
+      startPayoutSetup().catch((err) => setNotice({ text: "Couldn't reopen Stripe: " + err.message }));
+    } else if (params.get("stripe") === "return") {
+      refreshPayoutStatus()
+        .then(({ ready }) => setNotice(ready
+          ? { text: "✓ Payouts are set up. You can now add a price when you post an offer.", ok: true }
+          : { text: "Payout setup isn't finished yet. Open your profile to continue on Stripe." }))
+        .catch((err) => setNotice({ text: "Couldn't check your payout setup: " + err.message }));
+    }
+  }, [uid]);
+
+  // Settle held payments: charge once a hand-off is completed, release once it's been declined for good.
+  // Both people's apps do this (the server makes it safe to repeat), so it happens even if one tab closed early.
+  const paymentsSettled = useRef(new Set());
+  useEffect(() => {
+    if (!uid || !paymentsOn) return;
+    for (const p of allPosts) {
+      const pay = p.payment;
+      if (!pay || pay.status !== "authorized" || ![p.ownerId, pay.buyerId].includes(uid)) continue;
+      const key = `${p.id}:${p.status}:${p.claimedById}`;
+      if (paymentsSettled.current.has(key)) continue;
+      if (p.status === "completed" && p.claimedById === pay.buyerId) {
+        paymentsSettled.current.add(key);
+        capturePayment(p.id).catch((err) => console.error("Couldn't charge the held payment:", err));
+      } else if (p.status === "open" || p.claimedById !== pay.buyerId) {
+        paymentsSettled.current.add(key);
+        releasePayment(p.id).catch((err) => console.error("Couldn't release the held payment:", err));
+      }
+    }
+  }, [uid, allPosts]);
+
   // Pantry "Share" button -> Offer post.
   function shareFromPantry(item) {
     startPost({ type: "offer", pantryItemId: item.id, item: item.name, quantity: item.quantity, expiresOn: item.expiresOn });
@@ -222,6 +276,8 @@ export default function App() {
   // "I'll take it" / "I can help" anywhere: claim it, then show it under "My posts".
   async function claim(post) {
     try {
+      // Priced offers: pay first (Stripe holds the amount), and the server claims it when you come back.
+      if (isPaid(post)) return await payAndClaim(post);
       await claimPost(user, post, here);
     } catch (err) {
       alert("Couldn't respond: " + err.message);
@@ -365,6 +421,10 @@ export default function App() {
     if (!ok) return;
     try {
       await declineHandoff(user, post);
+      // A paid hand-off: let go of the buyer's card hold now that it's off.
+      if (paymentFor(post)?.status === "authorized") {
+        releasePayment(post.id).catch((err) => console.error("Couldn't release the held payment:", err));
+      }
       if (mapTargetId === post.id) setMapTargetId(null);
       if (pickRequest && pickRequest.key === post.id) setPickRequest(null);
     } catch (err) {
@@ -507,6 +567,12 @@ export default function App() {
           </div>
         )}
 
+        {notice && (
+          <div className={`pay-notice${notice.ok ? " ok" : ""}`} role="status">
+            <span>{notice.text}</span>
+            <button className="link" onClick={() => setNotice(null)}>Dismiss</button>
+          </div>
+        )}
         {user && profileState !== "ready" && <p className="empty">Loading your profile…</p>}
         {needsProfile && <ProfileSetup user={user} profile={profile} required onSaved={() => setEditing(false)} />}
 
