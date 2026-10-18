@@ -4,6 +4,7 @@ import { shortAgo } from "../dates";
 import { foodEmoji } from "../foodEmoji";
 import { usePeople } from "../usePeople";
 import Avatar from "./Avatar";
+import Reputation from "./Reputation";
 import ChatView from "./ChatView";
 import ErrorBoundary from "./ErrorBoundary";
 
@@ -47,7 +48,7 @@ function topicLabel(between, latest) {
 }
 
 // `openWith` is the uid of the person whose conversation is open (or null for the inbox).
-export default function Messages({ user, chats, posts, openWith, onOpen, onBack, onDirections, onChoosePickup, onAcceptPickup }) {
+export default function Messages({ user, chats, posts, openWith, onOpen, onBack, onDirections, onChoosePickup, onAcceptPickup, onReview }) {
   const groups = groupByPerson(chats, user);
   const people = usePeople(groups.map((g) => g.other.id));
 
@@ -58,7 +59,7 @@ export default function Messages({ user, chats, posts, openWith, onOpen, onBack,
       <ErrorBoundary key={openWith} label="This chat">
         <ChatView user={user} other={group.other} chats={group.chats} posts={postsBetween(posts, user, openWith)}
           photoURL={people[openWith]?.photoURL} onBack={onBack} onDirections={onDirections}
-          onChoosePickup={onChoosePickup} onAcceptPickup={onAcceptPickup} />
+          onChoosePickup={onChoosePickup} onAcceptPickup={onAcceptPickup} onReview={onReview} />
       </ErrorBoundary>
     );
   }
@@ -89,7 +90,7 @@ export default function Messages({ user, chats, posts, openWith, onOpen, onBack,
               {topic && <span className="dm-badge" aria-hidden>{foodEmoji(topic.split(", ")[0])}</span>}
             </span>
             <span className="dm-text">
-              <span className="dm-name">{other.name}</span>
+              <span className="dm-name">{other.name} <Reputation uid={other.id} tagLimit={1} /></span>
               <span className="dm-preview">
                 <span className="dm-snippet">{preview}</span>
                 {latest.lastAt > 0 && <span className="dm-time"> · {shortAgo(latest.lastAt)}</span>}

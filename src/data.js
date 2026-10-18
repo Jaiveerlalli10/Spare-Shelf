@@ -20,9 +20,11 @@
 import { firebaseReady, auth, db } from "./firebase";
 import { milesBetween, approxPoint } from "./location";
 import { NEAR_CAMPUS_MILES } from "./housing";
+import { hasProfanity, PROFANITY_MESSAGE } from "./profanity";
+import { NOTE_MAX, otherParty, reviewDocId, tagsFor } from "./reviews";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, runTransaction,
+  addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction,
   setDoc, updateDoc, where, writeBatch,
 } from "firebase/firestore";
 
@@ -296,6 +298,94 @@ export async function confirmHandoff(user, post) {
   }
 }
 
+// ---------- Reviews ----------
+//
+// One review per person per hand-off, at reviews/{postId}_{fromId}:
+// { postId, fromId, fromName, toId, toName, stars: 1-5, tags: string[], comment, item, createdAt, updatedAt }
+// Tags use the phrases in src/reviews.js. Anyone signed in can read them; only the author can write.
+
+const reviewCache = new Map(); // toId -> Promise<review[]>
+const reviewSubs = new Set();
+const savedReviewSubs = new Set();
+
+/** Tells open reputation badges to reload this person. */
+export function subscribeReviews(fn) {
+  reviewSubs.add(fn);
+  return () => reviewSubs.delete(fn);
+}
+
+/** Tells the hand-off button that this user just saved their review. */
+export function subscribeSavedReviews(fn) {
+  savedReviewSubs.add(fn);
+  return () => savedReviewSubs.delete(fn);
+}
+
+function notifyReviews(uid, review) {
+  reviewCache.delete(uid);
+  reviewSubs.forEach((fn) => fn(uid));
+  if (review) savedReviewSubs.forEach((fn) => fn(review));
+}
+
+/** Every review neighbors have left for this person. */
+export function getReviewsFor(uid) {
+  if (!uid) return Promise.resolve([]);
+  if (!reviewCache.has(uid)) {
+    const request = (isDemoMode
+      ? Promise.resolve(demo.getReviewsFor(uid))
+      : getDocs(query(collection(db, "reviews"), where("toId", "==", uid)))
+        .then((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    ).catch((err) => {
+      console.error("Couldn't load reviews (check Firestore rules):", err);
+      reviewCache.delete(uid);
+      throw err;
+    });
+    reviewCache.set(uid, request);
+  }
+  return reviewCache.get(uid);
+}
+
+/** This person's review of the hand-off, or null. */
+export async function getMyReview(postId, uid) {
+  const id = reviewDocId(postId, uid);
+  if (isDemoMode) return demo.getReview(id);
+  const snap = await getDoc(doc(db, "reviews", id));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+/** Saves stars and quick notes about the other person. One review per hand-off. */
+export async function saveReview(user, post, fields) {
+  const other = otherParty(post, user.uid);
+  if (!other?.id) throw new Error("There's nobody to review on this post.");
+  const stars = Number(fields.stars);
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) throw new Error("Choose 1 to 5 stars.");
+  const allowed = new Set(tagsFor(post, other.id));
+  const tags = [...new Set((fields.tags || []).filter((tag) => allowed.has(tag)))].slice(0, 6);
+  const rawComment = (fields.comment || "").trim();
+  if (hasProfanity(rawComment)) throw new Error(PROFANITY_MESSAGE);
+  const comment = rawComment.slice(0, NOTE_MAX);
+  const id = reviewDocId(post.id, user.uid);
+  const previous = await getMyReview(post.id, user.uid);
+  const now = Date.now();
+  const review = {
+    postId: post.id,
+    fromId: user.uid,
+    fromName: user.name,
+    toId: other.id,
+    toName: other.name,
+    stars,
+    tags,
+    comment,
+    item: post.item,
+    createdAt: previous?.createdAt || now,
+    updatedAt: now,
+  };
+  if (!isDemoMode) await setDoc(doc(db, "reviews", id), review);
+  else demo.setReview({ ...review, id });
+  const saved = { ...review, id };
+  notifyReviews(other.id, saved);
+  return saved;
+}
+
 /**
  * Gives one of your own posts a location (rounded, like new posts get) if it doesn't have one.
  * Used to fix posts made before distances existed, so they show up on the map.
@@ -557,6 +647,18 @@ const SEED_SPOTS = {
   "North Campus": { approxLat: 47.660, approxLng: -122.304 },
 };
 
+function seedReviews() {
+  const now = Date.now();
+  const ago = (hours) => now - hours * HOUR;
+  return [
+    { id: "s6_maya", postId: "s6", fromId: "maya", fromName: "Maya", toId: "jordan", toName: "Jordan", stars: 5, tags: ["On time", "Item was given as listed", "Friendly"], comment: "Left the milk by the lobby desk, still cold.", item: "Milk", createdAt: ago(20), updatedAt: ago(20) },
+    { id: "s2_priya", postId: "s2x", fromId: "priya", fromName: "Priya", toId: "jordan", toName: "Jordan", stars: 4, tags: ["Friendly", "Easy to meet"], item: "Spinach", createdAt: ago(10), updatedAt: ago(10) },
+    { id: "s3_lee", postId: "s3x", fromId: "lee", fromName: "Lee", toId: "sam", toName: "Sam", stars: 5, tags: ["Item was given as listed", "On time"], item: "Eggs", createdAt: ago(8), updatedAt: ago(8) },
+    { id: "s1_jordan", postId: "s1x", fromId: "jordan", fromName: "Jordan", toId: "maya", toName: "Maya", stars: 5, tags: ["On time", "Clear about what they needed", "Friendly"], item: "Sugar", createdAt: ago(6), updatedAt: ago(6) },
+    { id: "s5_alex", postId: "s5", fromId: "alex", fromName: "Alex", toId: "lee", toName: "Lee", stars: 5, tags: ["Item was given as listed", "Good portion"], item: "Rice", createdAt: ago(24), updatedAt: ago(24) },
+  ];
+}
+
 function seedPantry() {
   const now = Date.now();
   return [
@@ -586,6 +688,7 @@ const demo = (() => {
   const setPantry = (next) => { pantry = next; save("spareShelf.pantry", pantry); emit("pantry"); };
   let chats = load("spareShelf.chats", []);
   let messages = load("spareShelf.messages", {});
+  let reviews = load("spareShelf.reviews", null) || seedReviews();
   const saveChats = () => { save("spareShelf.chats", chats); save("spareShelf.messages", messages); emit("chats"); };
   const updateChat = (id, fn) => { chats = chats.map((c) => (c.id === id ? fn(c) : c)); };
   const addMessage = (chatId, msg) => {
@@ -654,6 +757,12 @@ const demo = (() => {
         senderId: other.id, senderName: other.name, text: "Sounds good! See you there 🙂", createdAt: Date.now(),
       }), 1500);
     },
+    getReviewsFor: (uid) => reviews.filter((r) => r.toId === uid),
+    getReview: (id) => reviews.find((r) => r.id === id) || null,
+    setReview(review) {
+      reviews = [...reviews.filter((r) => r.id !== review.id), review];
+      save("spareShelf.reviews", reviews);
+    },
     confirm(postId, myField, otherField) {
       const post = posts.find((p) => p.id === postId);
       if (!post) return;
@@ -677,6 +786,7 @@ export function resetDemoData() {
     localStorage.removeItem("spareShelf.pantry");
     localStorage.removeItem("spareShelf.chats");
     localStorage.removeItem("spareShelf.messages");
+    localStorage.removeItem("spareShelf.reviews");
   } catch { /* ignore */ }
   window.location.reload();
 }

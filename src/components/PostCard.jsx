@@ -2,6 +2,7 @@
 import { claimPost, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
+import Reputation from "./Reputation";
 import { milesToPost, awayLabel, tripFor } from "../location";
 import { handoffRoles } from "../data";
 import { foodEmoji } from "../foodEmoji";
@@ -20,8 +21,9 @@ const firstName = (name) => (name || "").split(" ")[0];
 // `here` is the viewer's housing location, used to show "0.3 mi away".
 // `index` staggers the entrance animation.
 // `onDirections(post)` shows walking directions to this post on the map.
+// `onReview(post)` opens the hand-off review sheet.
 // `pickup`: the pickup spot for this hand-off (if chosen); `onChoosePickup(post)` lets the giver choose it.
-export default function PostCard({ post, user, here, onMessage, onDirections, pickup, onChoosePickup, index = 0 }) {
+export default function PostCard({ post, user, here, onMessage, onReview, onDirections, pickup, onChoosePickup, index = 0 }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
@@ -50,7 +52,6 @@ export default function PostCard({ post, user, here, onMessage, onDirections, pi
       <>
         <span className="status claimed">{isMine ? `${post.claimedByName} is on it` : "You're on it!"}</span>
         {messageButton}
-        <Handoff post={post} user={user} />
       </>
     );
   } else if (post.status === "open") {
@@ -74,6 +75,7 @@ export default function PostCard({ post, user, here, onMessage, onDirections, pi
         <span className="what">{post.item}</span>
         {post.quantity && <span className="qty"> · {post.quantity}</span>}
       </h2>
+      {!isMine && <Reputation uid={post.ownerId} />}
       <p className="meta">
         📍 {post.location}{away && <> · <span className="away">{away}</span></>} · {timeAgo(post.createdAt)}
         {days !== null && (
@@ -95,6 +97,7 @@ export default function PostCard({ post, user, here, onMessage, onDirections, pi
           <button className="btn ghost" onClick={() => onDirections(post)}>🧭 Directions</button>
         )}
         {actions}
+        {user && inChat && post.status !== "open" && <Handoff post={post} user={user} onReview={onReview} />}
       </div>
       </div>
     </article>

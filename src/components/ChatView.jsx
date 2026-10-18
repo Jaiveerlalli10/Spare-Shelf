@@ -12,13 +12,15 @@ import { chatStamp } from "../dates";
 import { foodEmoji } from "../foodEmoji";
 import Avatar from "./Avatar";
 import Handoff from "./Handoff";
+import Reputation from "./Reputation";
 import { tripFor } from "../location";
 
 const GAP = 15 * 60 * 1000; // messages more than 15 minutes apart get a timestamp and a new group
 const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
 
 // `onChoosePickup(post)`: giver picks/changes the pickup spot; `onAcceptPickup(post)`: receiver accepts it.
-export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections, onChoosePickup, onAcceptPickup }) {
+// `onReview(post)`: opens the review sheet after a hand-off.
+export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections, onChoosePickup, onAcceptPickup, onReview }) {
   const [byChat, setByChat] = useState({}); // chat id -> its messages
   const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
@@ -87,7 +89,14 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
   const strips = stripPosts.map((post) => {
     const { giverId, giverName, receiverName } = handoffRoles(post);
     if (post.status === "completed") {
-      return <div key={post.id} className="dm-strip done">🎉 Hand-off complete! {post.item} was added to {receiverName}'s pantry.</div>;
+      return (
+        <div key={post.id} className="dm-strip done">
+          <div className="dm-strip-row">
+            <span>🎉 Hand-off complete! {post.item} was added to {receiverName}'s pantry.</span>
+            <span className="dm-strip-actions"><Handoff post={post} user={user} onReview={onReview} /></span>
+          </div>
+        </div>
+      );
     }
     const pickup = pickups[post.id];
     const iGive = giverId === user.uid;
@@ -103,7 +112,7 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
             {onDirections && tripFor(post, user, pickup) && (
               <button className="dm-directions" onClick={() => onDirections(post)} title="Walking directions" aria-label={`Walking directions for ${post.item}`}>🧭</button>
             )}
-            <Handoff post={post} user={user} />
+            <Handoff post={post} user={user} onReview={onReview} />
           </span>
         </div>
 
@@ -151,6 +160,7 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
         <Avatar name={other.name} photoURL={photoURL} size={40} />
         <div className="dm-header-text">
           <strong>{other.name}</strong>
+          <Reputation uid={other.id} />
           {topic && <span className="muted">{foodEmoji(topic.split(", ")[0])} about {topic}</span>}
         </div>
       </header>
@@ -162,6 +172,7 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
         <div className="dm-intro">
           <Avatar name={other.name} photoURL={photoURL} size={88} />
           <strong>{other.name}</strong>
+          <Reputation uid={other.id} showNote />
           <span className="muted">Spare Shelf neighbor{topic && ` · about ${topic}`}</span>
           <span className="muted">Say hi and pick a time and place to meet.</span>
         </div>

@@ -90,5 +90,86 @@ service cloud.firestore {
         allow create: if signedIn() && isMemberAfter() && request.resource.data.senderId == request.auth.uid;
       }
     }
+
+    // Reviews are public to signed-in neighbors. One per person per hand-off.
+    // The author can write it only after they have confirmed that hand-off.
+    match /reviews/{reviewId} {
+      function allowedTag(tag) {
+        return tag in [
+          "On time", "Friendly", "Easy to meet",
+          "Item was given as listed", "Good portion",
+          "Ready at the meetup", "Clear about what they needed"
+        ];
+      }
+      function tagsOk() {
+        let tags = request.resource.data.tags;
+        let n = tags.size();
+        return tags is list && n <= 6
+          && (n < 1 || allowedTag(tags[0]))
+          && (n < 2 || allowedTag(tags[1]))
+          && (n < 3 || allowedTag(tags[2]))
+          && (n < 4 || allowedTag(tags[3]))
+          && (n < 5 || allowedTag(tags[4]))
+          && (n < 6 || allowedTag(tags[5]));
+      }
+
+      // Same swearing check as src/profanity.js. Blocks the note even if someone skips the app.
+      function profane(note) {
+        return note.size() > 0 && note.lower().matches('.*(?:^|[^a-z])(?:f+[ .*_-]*u+[ .*_-]*c+[ .*_-]*k+|[s$5]+[ .*_-]*h+[ .*_-]*[i1!]+[ .*_-]*[t7]+|b+[ .*_-]*[i1!]+[ .*_-]*[t7]+[ .*_-]*c+[ .*_-]*h+|[a@4]+[ .*_-]*[s$5]+[ .*_-]*[s$5]+[ .*_-]*h+[ .*_-]*[o0]+[ .*_-]*l+[ .*_-]*[e3]+|b+[ .*_-]*[a@4]+[ .*_-]*[s$5]+[ .*_-]*[t7]+[ .*_-]*[a@4]+[ .*_-]*r+[ .*_-]*d+|d+[ .*_-]*[i1!]+[ .*_-]*c+[ .*_-]*k+|c+[ .*_-]*[o0]+[ .*_-]*c+[ .*_-]*k+|p+[ .*_-]*u+[ .*_-]*[s$5]+[ .*_-]*[s$5]+[ .*_-]*y+|c+[ .*_-]*u+[ .*_-]*n+[ .*_-]*[t7]+|[s$5]+[ .*_-]*l+[ .*_-]*u+[ .*_-]*[t7]+|w+[ .*_-]*h+[ .*_-]*[o0]+[ .*_-]*r+[ .*_-]*[e3]+|d+[ .*_-]*[a@4]+[ .*_-]*m+[ .*_-]*n+|h+[ .*_-]*[e3]+[ .*_-]*l+[ .*_-]*l+|p+[ .*_-]*[i1!]+[ .*_-]*[s$5]+[ .*_-]*[s$5]+|c+[ .*_-]*r+[ .*_-]*[a@4]+[ .*_-]*p+|[s$5]+[ .*_-]*u+[ .*_-]*c+[ .*_-]*k+|[a@4]+[ .*_-]*[s$5]+[ .*_-]*[s$5]+|[a@4]+[ .*_-]*r+[ .*_-]*[s$5]+[ .*_-]*[e3]+|m+[ .*_-]*[o0]+[ .*_-]*[t7]+[ .*_-]*h+[ .*_-]*[e3]+[ .*_-]*r+[ .*_-]*f+[ .*_-]*u+[ .*_-]*c+[ .*_-]*k+[ .*_-]*[e3]+[ .*_-]*r+|b+[ .*_-]*u+[ .*_-]*l+[ .*_-]*l+[ .*_-]*[s$5]+[ .*_-]*h+[ .*_-]*[i1!]+[ .*_-]*[t7]+|d+[ .*_-]*[i1!]+[ .*_-]*c+[ .*_-]*k+[ .*_-]*h+[ .*_-]*[e3]+[ .*_-]*[a@4]+[ .*_-]*d+|j+[ .*_-]*[a@4]+[ .*_-]*c+[ .*_-]*k+[ .*_-]*[a@4]+[ .*_-]*[s$5]+[ .*_-]*[s$5]+|d+[ .*_-]*u+[ .*_-]*m+[ .*_-]*b+[ .*_-]*[a@4]+[ .*_-]*[s$5]+[ .*_-]*[s$5]+|b+[ .*_-]*[a@4]+[ .*_-]*d+[ .*_-]*[a@4]+[ .*_-]*[s$5]+[ .*_-]*[s$5]+|f+[ .*_-]*u+[ .*_-]*c+[ .*_-]*k+[ .*_-]*y+[ .*_-]*[o0]+[ .*_-]*u+|n+[ .*_-]*[i1!]+[ .*_-]*g+[ .*_-]*g+[ .*_-]*[e3]+[ .*_-]*r+|n+[ .*_-]*[i1!]+[ .*_-]*g+[ .*_-]*g+[ .*_-]*[a@4]+|f+[ .*_-]*[a@4]+[ .*_-]*g+[ .*_-]*g+[ .*_-]*[o0]+[ .*_-]*[t7]+|f+[ .*_-]*[a@4]+[ .*_-]*g+|r+[ .*_-]*[e3]+[ .*_-]*[t7]+[ .*_-]*[a@4]+[ .*_-]*r+[ .*_-]*d+|[t7]+[ .*_-]*r+[ .*_-]*[a@4]+[ .*_-]*n+[ .*_-]*n+[ .*_-]*y+|k+[ .*_-]*[i1!]+[ .*_-]*k+[ .*_-]*[e3]+|[s$5]+[ .*_-]*p+[ .*_-]*[i1!]+[ .*_-]*c+|c+[ .*_-]*h+[ .*_-]*[i1!]+[ .*_-]*n+[ .*_-]*k+|[s$5]+[ .*_-]*h+[ .*_-]*[i1!]+[ .*_-]*[t7]+[ .*_-]*[t7]+[ .*_-]*y+|b+[ .*_-]*[i1!]+[ .*_-]*[t7]+[ .*_-]*c+[ .*_-]*h+[ .*_-]*y+|f+[ .*_-]*v+[ .*_-]*c+[ .*_-]*k+|p+[ .*_-]*h+[ .*_-]*u+[ .*_-]*c+[ .*_-]*k+|f+[ .*_-]*u+[ .*_-]*k+|f+[ .*_-]*u+[ .*_-]*q+|[s$5]+[ .*_-]*h+[ .*_-]*y+[ .*_-]*[t7]+|b+[ .*_-]*[i1!]+[ .*_-]*[a@4]+[ .*_-]*[t7]+[ .*_-]*c+[ .*_-]*h+|[a@4]+[ .*_-]*z+[ .*_-]*z+|f+[ .*_-]*c+[ .*_-]*k+|[s$5]+[ .*_-]*h+[ .*_-]*[t7]+|b+[ .*_-]*[t7]+[ .*_-]*c+[ .*_-]*h+|d+[ .*_-]*c+[ .*_-]*k+|f+[ .*_-]*k+)(?:ing|ers|er|ed|es|head|hole|ish|s)?(?:[^a-z]|$).*');
+      }
+      function reviewShape() {
+        return request.resource.data.keys().hasOnly([
+            "postId", "fromId", "fromName", "toId", "toName", "stars", "tags", "comment", "item", "createdAt", "updatedAt"
+          ])
+          && request.resource.data.postId is string
+          && request.resource.data.postId.matches('^[A-Za-z0-9]+$')
+          && request.resource.data.fromId == request.auth.uid
+          && request.resource.data.toId is string
+          && request.resource.data.toId != request.auth.uid
+          && request.resource.data.fromName is string
+          && request.resource.data.fromName.size() < 120
+          && request.resource.data.toName is string
+          && request.resource.data.toName.size() < 120
+          && request.resource.data.item is string
+          && request.resource.data.item.size() < 120
+          && request.resource.data.stars is number
+          && request.resource.data.stars >= 1
+          && request.resource.data.stars <= 5
+          && request.resource.data.comment is string
+          && request.resource.data.comment.size() <= 280
+          && !profane(request.resource.data.comment)
+          && request.resource.data.createdAt is number
+          && request.resource.data.updatedAt is number
+          && tagsOk();
+      }
+      function confirmedHandoff() {
+        let post = get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data;
+        let me = request.auth.uid;
+        let them = request.resource.data.toId;
+        let iAmOwner = post.ownerId == me;
+        let iAmClaimer = post.claimedById == me;
+        let iConfirmed = (iAmOwner && post.ownerConfirmed == true) || (iAmClaimer && post.claimerConfirmed == true);
+        return (iAmOwner || iAmClaimer)
+          && (post.ownerId == them || post.claimedById == them)
+          && iConfirmed
+          && (post.status == "claimed" || post.status == "completed");
+      }
+
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && reviewId == request.resource.data.postId + "_" + request.auth.uid
+        && reviewShape()
+        && confirmedHandoff();
+      allow update: if signedIn()
+        && request.auth.uid == resource.data.fromId
+        && request.resource.data.fromId == resource.data.fromId
+        && request.resource.data.toId == resource.data.toId
+        && request.resource.data.postId == resource.data.postId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && reviewId == request.resource.data.postId + "_" + request.auth.uid
+        && reviewShape()
+        && confirmedHandoff();
+      allow delete: if false;
+    }
   }
 }

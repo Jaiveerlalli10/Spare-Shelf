@@ -10,6 +10,7 @@ import ProfileSetup from "./components/ProfileSetup";
 import Avatar from "./components/Avatar";
 import Recipes from "./components/Recipes";
 import Messages from "./components/Messages";
+import ReviewSheet from "./components/ReviewSheet";
 import { milesToPost, publicPlaceLabel } from "./location";
 import MapPanel from "./components/MapPanel";
 import { useDeviceLocation } from "./useDeviceLocation";
@@ -29,6 +30,7 @@ export default function App() {
   const [chats, setChats] = useState([]);
   const [openChatWith, setOpenChatWith] = useState(null); // uid of the person whose chat is open
   const [mapTargetId, setMapTargetId] = useState(null); // post shown with directions on the map
+  const [reviewPost, setReviewPost] = useState(null);
   const uid = user ? user.uid : null;
 
   // Start listening to sign-in state and posts when the page loads.
@@ -38,6 +40,7 @@ export default function App() {
       setProfile(null);
       setProfileState("idle");
       setEditing(false);
+      setReviewPost(null);
       return;
     }
     setProfileState("loading");
@@ -324,7 +327,7 @@ export default function App() {
         ) : activeTab === "messages" ? (
           <Messages user={user} chats={chats} posts={posts} openWith={openChatWith}
             onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} onDirections={showDirections}
-            onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} />
+            onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onReview={setReviewPost} />
         ) : (
         <>
           <div className="filters">
@@ -354,7 +357,7 @@ export default function App() {
               <p className="empty">Nothing here yet. Be the first to post!</p>
             ) : (
               visible.map((p, i) => (
-                <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onDirections={showDirections}
+                <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onReview={setReviewPost} onDirections={showDirections}
                   pickup={pickups[p.id]} onChoosePickup={choosePickup} index={i} />
               ))
             )}
@@ -370,6 +373,10 @@ export default function App() {
           pickups={pickups} picking={picking} onChoosePickup={choosePickup}
           onPickSave={savePickup} onPickCancel={() => setPickingId(null)}
           onSelect={(post) => setMapTargetId(post.id)} onClear={() => setMapTargetId(null)} />
+      )}
+
+      {user && reviewPost && (
+        <ReviewSheet key={reviewPost.id} user={user} post={reviewPost} onClose={() => setReviewPost(null)} onSaved={() => setReviewPost(null)} />
       )}
     </div>
   );
