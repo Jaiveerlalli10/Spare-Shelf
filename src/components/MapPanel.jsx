@@ -225,7 +225,8 @@ export default function MapPanel({
       return;
     }
     // Use the goal itself when routeTo hasn't caught up yet, so the first click still draws the walk.
-    const to = routeTo || (goal ? { lat: goal.lat, lng: goal.lng, kind: goal.kind } : null);
+    // No goal means no walk, even if routeTo still holds the previous post's destination for a moment.
+    const to = goal ? (routeTo || { lat: goal.lat, lng: goal.lng, kind: goal.kind }) : null;
     if (!routeFrom || !to) {
       // No trip for you. If you're the giver and chose a pickup spot, show it; otherwise show the post's area.
       setRouteState("idle");
