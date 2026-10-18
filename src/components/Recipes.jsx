@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { watchPantry } from "../data";
 import { RECIPES, ALL_TAGS } from "../recipes";
 import { findInPantry, activeOffersByPantryItem } from "../matching";
+import { groupPantryItems } from "../pantryGroups";
 import RecipeDetail from "./RecipeDetail";
 import { aiReady, suggestRecipes } from "../ai";
 
@@ -21,7 +22,8 @@ export default function Recipes({ user, posts, here, onRequest, onMessage, onCla
 
   // Items you're giving away on the board don't count as "you have".
   const onBoard = activeOffersByPantryItem(posts, user);
-  const available = pantry.filter((i) => !onBoard.has(i.id));
+  // Same ingredient added more than once counts as one pile, matching the Pantry tab.
+  const available = groupPantryItems(pantry.filter((i) => !onBoard.has(i.id)));
 
   const opened = RECIPES.find((r) => r.id === openId) || ideas.find((r) => r.id === openId);
   if (opened) {

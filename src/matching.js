@@ -15,6 +15,11 @@ function words(text) {
   return (text || "").toLowerCase().split(/[^a-z]+/).filter(Boolean).map(singular);
 }
 
+/** Singular word key for a name, so "Eggs" and "egg" compare as the same ingredient. */
+export function nameKey(text) {
+  return words(text).join(" ");
+}
+
 export function nameMatches(ingredientName, itemName) {
   const itemWords = new Set(words(itemName));
   const needed = words(ingredientName);

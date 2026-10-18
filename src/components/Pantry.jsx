@@ -2,10 +2,11 @@
 // Items you're offering on the board get their own highlighted section.
 // Everything else is sorted so items about to go bad come first, with a "Share" button to offer them.
 import { useEffect, useState } from "react";
-import { watchPantry, addPantryItem, removePantryItem, deletePost } from "../data";
+import { watchPantry, addPantryItem, removePantryItem, removePantryItems, mergePantryItems, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import { activeOffersByPantryItem } from "../matching";
 import { foodEmoji } from "../foodEmoji";
+import { groupPantryItems, groupToJoin } from "../pantryGroups";
 
 const EMPTY = { name: "", quantity: "", expiresOn: "" };
 const SOON_DAYS = 2; // "expiring soon" = within this many days
@@ -26,8 +27,17 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
       return;
     }
     setError("");
+    const draft = { name: form.name.trim(), quantity: form.quantity.trim(), expiresOn: form.expiresOn || "" };
+    // Same ingredient already on the shelf: add onto that pile instead of a new row.
+    const joined = groupToJoin(keeping, draft);
     try {
-      await addPantryItem(user, form);
+      if (joined) {
+        const stored = joined.items.filter((item) => item.id !== "__draft__");
+        const keeper = stored.reduce((best, item) => ((item.addedAt || 0) < (best.addedAt || 0) ? item : best));
+        await mergePantryItems(user, keeper.id, joined, stored.map((item) => item.id));
+      } else {
+        await addPantryItem(user, form);
+      }
       setForm(EMPTY);
     } catch (err) {
       setError("Couldn't save: " + err.message);
@@ -48,17 +58,36 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
   const keeping = items.filter((i) => !onBoard.has(i.id));
 
   // Soonest best-by date first; items with no date go last, alphabetically.
-  const sorted = [...keeping].sort((a, b) => {
+  const sorted = groupPantryItems(keeping).sort((a, b) => {
     const da = daysUntil(a.expiresOn), dbb = daysUntil(b.expiresOn);
     if (da === null && dbb === null) return a.name.localeCompare(b.name);
     if (da === null) return 1;
     if (dbb === null) return -1;
     return da - dbb;
   });
-  const soonCount = sorted.filter((i) => {
-    const d = daysUntil(i.expiresOn);
+  const soonCount = sorted.filter((group) => {
+    const d = daysUntil(group.expiresOn);
     return d !== null && d <= SOON_DAYS;
   }).length;
+
+  // Share the whole pile. Fold the rows into one first so the hand-off removes all of them.
+  async function share(group) {
+    try {
+      let item = group.items[0];
+      if (group.items.length > 1) {
+        await mergePantryItems(user, group.id, group, group.ids);
+        item = { id: group.id, name: group.name, quantity: group.quantity, expiresOn: group.expiresOn };
+      }
+      onShare(item);
+    } catch (err) {
+      setError("Couldn't combine those: " + err.message);
+    }
+  }
+
+  async function useUpGroup(group) {
+    if (group.items.length > 1 && !window.confirm(`Used up all ${group.label}?`)) return;
+    await removePantryItems(user, group.items);
+  }
 
   return (
     <section className="pantry">
@@ -121,22 +150,22 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
 
       {keeping.length > 0 && (
         <>
-          {offering.length > 0 && <h3 className="pantry-heading">Keeping ({keeping.length})</h3>}
+          {offering.length > 0 && <h3 className="pantry-heading">Keeping ({sorted.length})</h3>}
           <ul className="pantry-list">
-            {sorted.map((item) => {
-              const days = daysUntil(item.expiresOn);
+            {sorted.map((group) => {
+              const days = daysUntil(group.expiresOn);
               const soon = days !== null && days <= SOON_DAYS;
               return (
-                <li key={item.id} className={soon ? "card pantry-item soon" : "card pantry-item"}>
+                <li key={group.ids.join("-")} className={soon ? "card pantry-item soon" : "card pantry-item"}>
                   <div>
-                    <span className="pantry-emoji" aria-hidden>{foodEmoji(item.name)}</span>
-                    <strong>{item.name}</strong>
-                    {item.quantity && <span className="qty"> · {item.quantity}</span>}
+                    <span className="pantry-emoji" aria-hidden>{foodEmoji(group.name)}</span>
+                    <strong>{group.label}</strong>
+                    {group.qtyText && <span className="qty"> · {group.qtyText}</span>}
                     {days !== null && <div className={soon ? "expiry soon" : "expiry muted"}>{expiryLabel(days)}</div>}
                   </div>
                   <div className="pantry-actions">
-                    <button className="btn ghost" onClick={() => onShare(item)}>Share</button>
-                    <button className="btn ghost" onClick={() => useUp(item, null)}>Used up</button>
+                    <button className="btn ghost" onClick={() => share(group)}>Share</button>
+                    <button className="btn ghost" onClick={() => useUpGroup(group)}>Used up</button>
                   </div>
                 </li>
               );

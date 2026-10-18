@@ -1,9 +1,10 @@
 // Form for creating an Offer or a Request.
 import { useEffect, useState } from "react";
-import { createPost, watchPantry } from "../data";
+import { createPost, watchPantry, mergePantryItems } from "../data";
 import { activeOffersByPantryItem } from "../matching";
 import { aiReady, describeFoodPhoto } from "../ai";
 import { readFoodPhoto } from "../photo";
+import { groupPantryItems } from "../pantryGroups";
 
 const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn: "", estValue: "", notes: "", pantryItemId: "", pickup: null };
 
@@ -20,14 +21,35 @@ export default function PostForm({ user, posts, origin, homeLabel, onDone, initi
 
   // Pantry entries you could offer: everything not already in an active offer.
   const onBoard = activeOffersByPantryItem(posts, user);
-  const offerable = pantry.filter((i) => !onBoard.has(i.id)).sort((a, b) => a.name.localeCompare(b.name));
+  const offerable = pantry.filter((i) => !onBoard.has(i.id));
+  const groups = groupPantryItems(offerable).sort((a, b) => a.name.localeCompare(b.name));
 
   // Picking a pantry entry fills in its name, amount and best-by date.
-  function pickPantryItem(e) {
-    const item = pantry.find((i) => i.id === e.target.value);
-    setForm(item
-      ? { ...form, pantryItemId: item.id, item: item.name, quantity: item.quantity, expiresOn: item.expiresOn }
-      : { ...form, pantryItemId: "" });
+  // Like ingredients are one choice ("6 eggs"); picking that folds them into one row.
+  async function pickPantryItem(e) {
+    const id = e.target.value;
+    if (!id) {
+      setForm({ ...form, pantryItemId: "" });
+      return;
+    }
+    const group = groups.find((g) => g.ids.includes(id));
+    if (!group) return;
+    let item = group.items.find((entry) => entry.id === group.id) || group.items[0];
+    try {
+      if (group.items.length > 1) {
+        await mergePantryItems(user, group.id, group, group.ids);
+        item = { id: group.id, name: group.name, quantity: group.quantity, expiresOn: group.expiresOn };
+      }
+      setForm({
+        ...form,
+        pantryItemId: item.id,
+        item: item.name,
+        quantity: group.items.length > 1 ? group.quantity : item.quantity,
+        expiresOn: group.items.length > 1 ? group.expiresOn : item.expiresOn,
+      });
+    } catch (err) {
+      setError("Couldn't combine those: " + err.message);
+    }
   }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -105,8 +127,10 @@ export default function PostForm({ user, posts, origin, homeLabel, onDone, initi
         <label>From your pantry
           <select value={form.pantryItemId} onChange={pickPantryItem}>
             <option value="">Add as a new pantry item</option>
-            {offerable.map((i) => (
-              <option key={i.id} value={i.id}>{i.name}{i.quantity && ` · ${i.quantity}`}</option>
+            {groups.map((group) => (
+              <option key={group.ids.join("-")} value={group.id}>
+                {group.qtyText ? `${group.label} · ${group.qtyText}` : group.label}
+              </option>
             ))}
           </select>
         </label>

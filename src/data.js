@@ -545,6 +545,40 @@ export async function removePantryItem(user, item) {
   demo.removePantryItem(item.id);
 }
 
+/** Deletes several pantry rows at once. */
+export async function removePantryItems(user, items) {
+  const ids = [...new Set(items.map((item) => item.id).filter(Boolean))];
+  if (!ids.length) return;
+  if (!isDemoMode) {
+    const batch = writeBatch(db);
+    for (const id of ids) batch.delete(doc(db, "users", user.uid, "pantry", id));
+    await batch.commit();
+    return;
+  }
+  demo.removePantryItems(ids);
+}
+
+/**
+ * Writes the combined amount onto one pantry row and deletes the other rows
+ * that were folded into it. `removeIds` can include the keeper; it is kept.
+ */
+export async function mergePantryItems(user, keeperId, fields, removeIds) {
+  const changes = {
+    name: fields.name.trim(),
+    quantity: (fields.quantity || "").trim(),
+    expiresOn: fields.expiresOn || "",
+  };
+  const drop = [...new Set(removeIds.filter((id) => id && id !== keeperId))];
+  if (!isDemoMode) {
+    const batch = writeBatch(db);
+    batch.update(doc(db, "users", user.uid, "pantry", keeperId), changes);
+    for (const id of drop) batch.delete(doc(db, "users", user.uid, "pantry", id));
+    await batch.commit();
+    return;
+  }
+  demo.mergePantryItems(keeperId, changes, drop);
+}
+
 // ---------- Messages ----------
 //
 // ONE chat per pair of people (however many posts they trade), stored at chats/{pairId},
@@ -976,6 +1010,16 @@ const demo = (() => {
       return id;
     },
     removePantryItem(id) { setPantry(pantry.filter((i) => i.id !== id)); },
+    removePantryItems(ids) {
+      const drop = new Set(ids);
+      setPantry(pantry.filter((i) => !drop.has(i.id)));
+    },
+    mergePantryItems(keeperId, changes, removeIds) {
+      const drop = new Set(removeIds);
+      setPantry(pantry
+        .filter((i) => !drop.has(i.id))
+        .map((i) => (i.id === keeperId ? { ...i, ...changes } : i)));
+    },
 
     getChats: () => [...chats],
     getLive: (chatId, uid) => live[`${chatId}/${uid}`] || null,
