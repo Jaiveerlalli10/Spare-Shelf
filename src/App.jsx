@@ -32,6 +32,18 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [profileState, setProfileState] = useState("idle"); // "idle" | "loading" | "ready"
   const [editing, setEditing] = useState(false);
+  // Clicking anywhere outside the profile editor (or its Profile button) closes it.
+  const profilePanel = useRef(null);
+  const profileButton = useRef(null);
+  useEffect(() => {
+    if (!editing) return;
+    function closeIfOutside(e) {
+      if (profilePanel.current?.contains(e.target) || profileButton.current?.contains(e.target)) return;
+      setEditing(false);
+    }
+    document.addEventListener("pointerdown", closeIfOutside);
+    return () => document.removeEventListener("pointerdown", closeIfOutside);
+  }, [editing]);
   const [chats, setChats] = useState([]);
   const [openChatWith, setOpenChatWith] = useState(null); // uid of the person whose chat is open
   const [mapTargetId, setMapTargetId] = useState(null); // post shown with directions on the map
@@ -439,7 +451,7 @@ export default function App() {
             </div>
             <div className="user-card-actions">
               {complete && (
-                <button className="btn ghost small" onClick={() => setEditing((open) => !open)}>
+                <button ref={profileButton} className="btn ghost small" onClick={() => setEditing((open) => !open)}>
                   {editing ? "Close profile" : "Profile"}
                 </button>
               )}
@@ -503,7 +515,11 @@ export default function App() {
         {needsProfile && <ProfileSetup user={user} profile={profile} required onSaved={() => setEditing(false)} />}
 
         {showApp && <>
-        {editing && <ProfileSetup user={user} profile={profile} onSaved={() => setEditing(false)} />}
+        {editing && (
+          <div ref={profilePanel}>
+            <ProfileSetup user={user} profile={profile} onSaved={() => setEditing(false)} />
+          </div>
+        )}
 
         <header className={`page-head tone-${page.tone}`}>
           <span className="page-icon" aria-hidden>{page.icon}</span>
