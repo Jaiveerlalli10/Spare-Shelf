@@ -271,6 +271,11 @@ export async function createPost(user, fields) {
     claimedByName: "",
     claimedByEmail: "",
     pantryItemId,
+    // Offers can list a pickup spot when posted (public, like the old "pickup area"). Once claimed,
+    // the giver can change it privately in the chat (see setPickupSpot).
+    pickup: fields.type === "offer" && fields.pickup
+      ? { lat: fields.pickup.lat, lng: fields.pickup.lng, label: String(fields.pickup.label).slice(0, 80) }
+      : null,
     approxLat: approx ? approx.lat : null,
     approxLng: approx ? approx.lng : null,
     ownerConfirmed: false,
@@ -629,18 +634,27 @@ export async function setPickupSpot(user, post, spot) {
   await sendMessage(user, { id: chatId, members: [user.uid, other.id].sort() }, `📍 Pickup spot for ${post.item}: ${value.label}`);
 }
 
-/** The receiver accepts the current pickup spot. */
+/** The poster sets (or changes) the public pickup spot on their own offer before anyone claims it. */
+export async function setPostPickup(post, spot) {
+  const pickup = { lat: spot.lat, lng: spot.lng, label: spot.label.trim().slice(0, 80) };
+  if (!isDemoMode) return updateDoc(doc(db, "posts", post.id), { pickup });
+  demo.updatePost(post.id, { pickup });
+}
+
+/**
+ * The receiver accepts the current pickup spot. The whole spot is saved in the chat, so this also
+ * works for a spot that was listed on the post (and not set in the chat yet).
+ */
 export async function acceptPickupSpot(user, post, pickup) {
   const other = otherInPost(post, user);
-  const chatId = pairId(user.uid, other.id);
-  if (!isDemoMode) {
-    await updateDoc(doc(db, "chats", chatId), {
-      [`pickups.${post.id}.accepted`]: true,
-      [`pickups.${post.id}.acceptedAt`]: Date.now(),
-    });
-  } else {
-    demo.setPickup(chatId, post.id, { ...pickup, accepted: true, acceptedAt: Date.now() });
-  }
+  const chatId = await ensureChat(post);
+  const value = {
+    lat: pickup.lat, lng: pickup.lng, label: pickup.label,
+    setBy: pickup.setBy || post.ownerId, setAt: pickup.setAt || Date.now(),
+    accepted: true, acceptedAt: Date.now(),
+  };
+  if (!isDemoMode) await updateDoc(doc(db, "chats", chatId), { [`pickups.${post.id}`]: value });
+  else demo.setPickup(chatId, post.id, value);
   await sendMessage(user, { id: chatId, members: [user.uid, other.id].sort() }, `✅ Sounds good, see you at ${pickup.label}!`);
 }
 
@@ -649,6 +663,20 @@ export function pickupsFromChats(chats) {
   const all = {};
   for (const chat of chats) Object.assign(all, chat.pickups || {});
   return all;
+}
+
+/**
+ * The pickup spot in effect for each post: the one set in your chat (private, after a claim) wins;
+ * otherwise the spot listed on the post itself (counts as not accepted yet).
+ */
+export function pickupsFor(posts, chats) {
+  const all = {};
+  for (const p of posts) {
+    if (p.pickup && Number.isFinite(p.pickup.lat) && Number.isFinite(p.pickup.lng)) {
+      all[p.id] = { ...p.pickup, accepted: false, fromPost: true };
+    }
+  }
+  return Object.assign(all, pickupsFromChats(chats));
 }
 
 // ---------- Live location (the giver's, during a hand-off with a pickup spot) ----------
