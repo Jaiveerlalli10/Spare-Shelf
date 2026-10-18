@@ -6,7 +6,9 @@ import "leaflet/dist/leaflet.css";
 import { foodEmoji } from "../foodEmoji";
 import { walkingRoute, stepText, formatWalkDistance } from "../directions";
 import { noTripReason, tripFor } from "../location";
-import { handoffRoles } from "../data";
+import { handoffRoles, pairId, watchLiveLocation, LIVE_FRESH_MS } from "../data";
+import { searchPlaces, reverseGeocode } from "../geocode";
+import { LiveNote } from "./ChatView";
 
 const CAMPUS = [47.6553, -122.3035]; // fallback center: UW Seattle
 // Standard OpenStreetMap tiles (free, no key). They're darkened with a CSS filter (.leaflet-tile-pane in styles.css).
@@ -26,7 +28,7 @@ const REROUTE_METERS = 50; // walk this far from where the route started before 
 // Directions go from your live location (or `here`) to the pickup spot, or the giver's area if none is set yet.
 export default function MapPanel({
   here, homeLabel, device, posts, user, target, pickups = {}, picking,
-  onSelect, onClear, onChoosePickup, onPickSave, onPickCancel,
+  onSelect, onClear, onChoosePickup, onPickSave, onPickCancel, liveShare,
 }) {
   const boxRef = useRef(null);
   const mapRef = useRef(null);
@@ -220,18 +222,32 @@ export default function MapPanel({
   }, [target?.id, routeTo?.lat, routeTo?.lng, routeTo?.kind, routeFrom?.lat, routeFrom?.lng,
       targetPickup?.lat, targetPickup?.lng, targetPickup?.accepted]);
 
-  // ---------- Picking mode: the giver taps (or drags) to choose the pickup spot ----------
+  // ---------- Picking mode: the giver drags a pin (or searches an address) to choose the pickup spot ----------
+  // The spot's name is filled in automatically from the address at the pin.
   const [candidate, setCandidate] = useState(null); // { lat, lng }
-  const [spotLabel, setSpotLabel] = useState("");
+  const [spotLabel, setSpotLabel] = useState(""); // address/place at the pin
+  const [labelState, setLabelState] = useState("idle"); // idle | looking | done
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState([]);
   const [saving, setSaving] = useState(false);
   const candidateRef = useRef(null);
+  const knownLabel = useRef(null); // label we already know for a spot (from search), so we skip the lookup
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !picking) return;
+    // Start with the pin on the current spot, or on you, so it's ready to drag.
     const existing = pickups[picking.id];
-    setCandidate(existing ? { lat: existing.lat, lng: existing.lng } : null);
-    setSpotLabel(existing ? existing.label : "");
-    if (existing) map.setView([existing.lat, existing.lng], 17);
+    const start = existing
+      ? { lat: existing.lat, lng: existing.lng }
+      : device.pos ? { lat: device.pos.lat, lng: device.pos.lng }
+      : here ? { lat: here.lat, lng: here.lng }
+      : { lat: map.getCenter().lat, lng: map.getCenter().lng };
+    if (existing) knownLabel.current = { ...start, label: existing.label };
+    setCandidate(start);
+    setSearch("");
+    setResults([]);
+    map.setView([start.lat, start.lng], 17);
     const onClick = (e) => setCandidate({ lat: e.latlng.lat, lng: e.latlng.lng });
     map.on("click", onClick);
     map.getContainer().classList.add("picking");
@@ -239,14 +255,18 @@ export default function MapPanel({
       map.off("click", onClick);
       map.getContainer().classList.remove("picking");
       setCandidate(null);
+      setSpotLabel("");
+      knownLabel.current = null;
     };
   }, [picking?.id]);
+
+  // The draggable pin.
   useEffect(() => {
     const map = mapRef.current;
     if (candidateRef.current) candidateRef.current.remove();
     candidateRef.current = null;
     if (!map || !picking || !candidate) return;
-    const marker = pickupMarker({ ...candidate, label: spotLabel || "Pickup spot" }, false, true);
+    const marker = pickupMarker({ ...candidate, label: "Drag me to the pickup spot" }, false, true);
     marker.on("dragend", () => {
       const ll = marker.getLatLng();
       setCandidate({ lat: ll.lat, lng: ll.lng });
@@ -254,17 +274,119 @@ export default function MapPanel({
     candidateRef.current = marker.addTo(map);
   }, [picking?.id, candidate?.lat, candidate?.lng]);
 
+  // Look up the address wherever the pin lands.
+  useEffect(() => {
+    if (!picking || !candidate) return;
+    const known = knownLabel.current;
+    if (known && Math.abs(known.lat - candidate.lat) < 1e-7 && Math.abs(known.lng - candidate.lng) < 1e-7) {
+      setSpotLabel(known.label);
+      setLabelState("done");
+      return;
+    }
+    const ctrl = new AbortController();
+    setLabelState("looking");
+    const timer = setTimeout(() => {
+      reverseGeocode(candidate.lat, candidate.lng, ctrl.signal)
+        .then((label) => { setSpotLabel(label); setLabelState("done"); })
+        .catch((err) => { if (err.name !== "AbortError") { setSpotLabel(""); setLabelState("done"); } });
+    }, 350);
+    return () => { clearTimeout(timer); ctrl.abort(); };
+  }, [picking?.id, candidate?.lat, candidate?.lng]);
+
+  // Address search: picking a result moves the pin there.
+  useEffect(() => {
+    if (!picking || search.trim().length < 3) { setResults([]); return; }
+    const ctrl = new AbortController();
+    const near = device.pos || here || (mapRef.current && mapRef.current.getCenter());
+    const timer = setTimeout(() => {
+      searchPlaces(search, near && { lat: near.lat, lng: near.lng }, ctrl.signal)
+        .then(setResults)
+        .catch((err) => { if (err.name !== "AbortError") setResults([]); });
+    }, 300);
+    return () => { clearTimeout(timer); ctrl.abort(); };
+  }, [picking?.id, search]);
+
+  function pickResult(r) {
+    knownLabel.current = { lat: r.lat, lng: r.lng, label: r.label };
+    setCandidate({ lat: r.lat, lng: r.lng });
+    setSearch("");
+    setResults([]);
+    if (mapRef.current) mapRef.current.setView([r.lat, r.lng], 17);
+  }
+
   async function savePick() {
-    if (!candidate || !spotLabel.trim()) return;
+    if (!candidate) return;
     setSaving(true);
     try {
-      await onPickSave(picking, { lat: candidate.lat, lng: candidate.lng, label: spotLabel.trim() });
+      const label = spotLabel.trim() || `Dropped pin (${candidate.lat.toFixed(4)}, ${candidate.lng.toFixed(4)})`;
+      await onPickSave(picking, { lat: candidate.lat, lng: candidate.lng, label });
     } catch (err) {
       alert("Couldn't save the pickup spot: " + err.message);
     } finally {
       setSaving(false);
     }
   }
+
+  // ---------- The giver's live location + ETA (shown to the receiver) ----------
+  const roles = target && target.status === "claimed" ? handoffRoles(target) : null;
+  const giverToWatch = roles && user && roles.receiverId === user.uid ? roles.giverId : null;
+  const [giverLive, setGiverLive] = useState(null);
+  useEffect(() => {
+    setGiverLive(null);
+    if (!giverToWatch) return;
+    return watchLiveLocation(pairId(user.uid, giverToWatch), giverToWatch, setGiverLive);
+  }, [giverToWatch, user?.uid]);
+  const [now, setNow] = useState(Date.now()); // keeps "updated 20s ago" and staleness current
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 10000);
+    return () => clearInterval(id);
+  }, []);
+  const giverNow = giverLive && now - giverLive.updatedAt < LIVE_FRESH_MS ? giverLive : null;
+
+  // Their dot on the map.
+  const giverDotRef = useRef(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (giverDotRef.current) giverDotRef.current.remove();
+    giverDotRef.current = null;
+    if (!map || !giverNow || !roles) return;
+    giverDotRef.current = L.marker([giverNow.lat, giverNow.lng], {
+      icon: L.divIcon({ className: "map-other", html: "<span>🧑</span>", iconSize: [30, 30] }),
+      title: `${roles.giverName} (live)`,
+      zIndexOffset: 990,
+    }).addTo(map);
+  }, [giverNow?.lat, giverNow?.lng, Boolean(giverNow), roles?.giverName]);
+
+  // Their walking ETA to the pickup spot (re-checked after they move ~40 m).
+  const [giverFrom, setGiverFrom] = useState(null);
+  useEffect(() => {
+    if (!giverNow) { setGiverFrom(null); return; }
+    setGiverFrom((prev) => (prev && L.latLng(prev.lat, prev.lng).distanceTo([giverNow.lat, giverNow.lng]) < 40
+      ? prev : { lat: giverNow.lat, lng: giverNow.lng }));
+  }, [giverNow?.lat, giverNow?.lng, Boolean(giverNow)]);
+  const [giverEta, setGiverEta] = useState(null); // { arrived } or { duration, distance }
+  const giverRouteRef = useRef(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (giverRouteRef.current) giverRouteRef.current.remove();
+    giverRouteRef.current = null;
+    setGiverEta(null);
+    if (!map || !giverFrom || !targetPickup) return;
+    const to = { lat: targetPickup.lat, lng: targetPickup.lng };
+    const meters = map.distance([giverFrom.lat, giverFrom.lng], [to.lat, to.lng]);
+    if (meters < 40) { setGiverEta({ arrived: true }); return; }
+    const ctrl = new AbortController();
+    walkingRoute(giverFrom, to, ctrl.signal)
+      .then((r) => {
+        giverRouteRef.current = L.geoJSON(r.geometry, { style: { color: "#3797f0", weight: 4, opacity: 0.8, dashArray: "2 8", lineCap: "round" } }).addTo(map);
+        setGiverEta({ duration: r.duration, distance: r.distance });
+      })
+      .catch((err) => {
+        if (err.name === "AbortError") return;
+        setGiverEta({ duration: meters / 1.35, distance: meters });
+      });
+    return () => ctrl.abort();
+  }, [giverFrom?.lat, giverFrom?.lng, targetPickup?.lat, targetPickup?.lng]);
 
   return (
     <aside className="map-panel" id="map-panel" aria-label="Map and directions">
@@ -299,8 +421,28 @@ export default function MapPanel({
             </div>
             <button className="map-close" onClick={onPickCancel} aria-label="Cancel">×</button>
           </div>
-          <p className="muted">
-            {candidate ? "Drag the pin to adjust it, or tap somewhere else." : "Tap the map where you'd like to meet. Public spots like a lobby or library entrance work best."}
+          <p className="muted">Drag the pin (or tap the map) to where you'd like to meet, or search an address. Public spots like a lobby or library entrance work best.</p>
+
+          <div className="pick-search">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 Search an address or building…" aria-label="Search an address" />
+            {results.length > 0 && (
+              <ul className="combo-list">
+                {results.map((r) => (
+                  <li key={`${r.label}|${r.lat}|${r.lng}`}>
+                    <button type="button" onClick={() => pickResult(r)}>
+                      <span>{r.label}</span>
+                      {r.detail && <span className="muted">{r.detail}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <p className="pick-address">
+            📍 {labelState === "looking"
+              ? <span className="muted">Finding the address…</span>
+              : spotLabel || <span className="muted">No address here, so it'll be saved as a dropped pin.</span>}
           </p>
           <div className="pick-actions">
             <button className="btn ghost small" disabled={!device.pos} title={device.pos ? "" : "Turn on location first"}
@@ -308,14 +450,11 @@ export default function MapPanel({
                 setCandidate({ lat: device.pos.lat, lng: device.pos.lng });
                 if (mapRef.current) mapRef.current.setView([device.pos.lat, device.pos.lng], 17);
               }}>
-              📡 Use my location
+              📡 Move pin to me
             </button>
           </div>
-          <label className="pick-label">Name the spot
-            <input value={spotLabel} onChange={(e) => setSpotLabel(e.target.value)} placeholder="e.g. Alder Hall lobby" maxLength={80} />
-          </label>
           <div className="pick-actions">
-            <button className="btn primary" onClick={savePick} disabled={!candidate || !spotLabel.trim() || saving}>
+            <button className="btn primary" onClick={savePick} disabled={!candidate || labelState === "looking" || saving}>
               {saving ? "Saving…" : "Save pickup spot"}
             </button>
             <button className="btn ghost" onClick={onPickCancel}>Cancel</button>
@@ -356,6 +495,9 @@ export default function MapPanel({
           )}
           {!goal && !iGive && <p className="muted">{noTripReason(target, user)}</p>}
           {iGive && <p className="muted">You're giving this, so {otherName} comes to the pickup spot.</p>}
+          {iGive && targetPickup && (
+            <p className="map-from"><LiveNote liveShare={liveShare} otherId={roles.receiverId} otherName={otherName} /></p>
+          )}
           {goal && !origin && <p className="muted">Allow location access, or finish your profile, to get directions.</p>}
           {goal && origin && (
             <p className="map-from">
@@ -375,12 +517,27 @@ export default function MapPanel({
               )}
             </p>
           )}
+          {/* Receiver: where the giver is, and how long until they reach the pickup spot */}
+          {giverToWatch && targetPickup && (
+            <p className="map-other-eta">
+              {giverNow ? (
+                giverEta && giverEta.arrived
+                  ? <>🧑 <strong>{roles.giverName}</strong> is at the pickup spot.</>
+                  : giverEta
+                    ? <>🧑 <strong>{roles.giverName}</strong>: <b>{Math.max(1, Math.round(giverEta.duration / 60))} min</b> from the pickup spot ({formatWalkDistance(giverEta.distance)})</>
+                    : <>🧑 <strong>{roles.giverName}</strong> is on the map.</>
+              ) : (
+                <span className="muted">🧑 {roles.giverName}'s live location isn't available right now.</span>
+              )}
+              {giverNow && <span className="muted"> · updated {agoText(now - giverNow.updatedAt)}</span>}
+            </p>
+          )}
           {routeState === "loading" && <p className="muted">Finding a walking route…</p>}
 
           {route && (
             <>
               <div className="map-stats">
-                <span><b>{Math.max(1, Math.round(route.duration / 60))} min</b> walk</span>
+                <span>You: <b>{Math.max(1, Math.round(route.duration / 60))} min</b> walk</span>
                 <span><b>{formatWalkDistance(route.distance)}</b></span>
               </div>
               {route.straight && <p className="muted">Couldn't get street directions, so this is a straight line.</p>}
@@ -467,4 +624,9 @@ function pickupMarker(spot, accepted, draggable = false) {
     draggable,
     zIndexOffset: 960,
   });
+}
+
+function agoText(ms) {
+  const sec = Math.max(1, Math.round(ms / 1000));
+  return sec < 60 ? `${sec}s ago` : `${Math.round(sec / 60)} min ago`;
 }

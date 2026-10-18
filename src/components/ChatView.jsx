@@ -20,7 +20,7 @@ const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
 
 // `onChoosePickup(post)`: giver picks/changes the pickup spot; `onAcceptPickup(post)`: receiver accepts it.
 // `onReview(post)`: opens the review sheet after a hand-off.
-export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections, onChoosePickup, onAcceptPickup, onReview }) {
+export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections, onChoosePickup, onAcceptPickup, onReview, liveShare }) {
   const [byChat, setByChat] = useState({}); // chat id -> its messages
   const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
@@ -123,6 +123,7 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
               <>
                 <span>📍 <strong>{pickup.label}</strong>{pickup.accepted ? ` · ✅ ${receiverName} accepted` : ` · waiting for ${receiverName} to accept`}</span>
                 {onChoosePickup && <button className="btn ghost small" onClick={() => onChoosePickup(post)}>Change</button>}
+                <LiveNote liveShare={liveShare} otherId={other.id} otherName={receiverName} />
               </>
             ) : (
               <>
@@ -214,5 +215,23 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
       </form>
       {error && <p className="error dm-error">{error}</p>}
     </section>
+  );
+}
+
+/** Giver's note: the receiver can see your live location while you head to the pickup spot (with Pause). */
+export function LiveNote({ liveShare, otherId, otherName }) {
+  if (!liveShare) return null;
+  const isPaused = liveShare.paused.includes(otherId);
+  return (
+    <span className="live-note">
+      <span>
+        {isPaused
+          ? <>⏸ Live location paused for {otherName}.</>
+          : liveShare.liveOn
+            ? <>📡 {otherName} can see your live location until the hand-off is done.</>
+            : <>📡 Turn on location (see the map) so {otherName} can see you coming.</>}
+      </span>
+      <button className="btn ghost small" onClick={() => liveShare.onTogglePause(otherId)}>{isPaused ? "Resume" : "Pause"}</button>
+    </span>
   );
 }

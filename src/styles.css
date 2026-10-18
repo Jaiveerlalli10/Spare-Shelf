@@ -764,6 +764,22 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 .leaflet-container.picking { cursor: crosshair; }
 .picking-card { border: 1px solid #a334fa; }
 .pick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.pick-search { position: relative; margin-top: 8px; }
+.pick-search input {
+  width: 100%; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-solid); color: var(--text);
+}
+.pick-search input:focus { outline: none; border-color: #a334fa; box-shadow: 0 0 0 3px rgba(163, 52, 250, 0.25); }
+.pick-search .combo-list { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); }
+.pick-address { margin: 10px 0 0; font-weight: 600; font-size: 0.92rem; }
+.map-other span {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--sky-bg); border: 3px solid #3797f0; font-size: 0.95rem;
+  animation: pulse 2s ease-out infinite;
+}
+.map-other-eta { margin: 8px 0 0; padding: 8px 10px; border-radius: 12px; background: var(--sky-bg); font-size: 0.88rem; }
+.map-other-eta b { color: #74baf2; }
+.live-note { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; width: 100%; font-size: 0.82rem; }
 .pick-label { display: block; margin-top: 10px; font-size: 0.8rem; font-weight: 700; color: var(--muted); }
 .pick-label input {
   display: block; width: 100%; margin-top: 4px; padding: 9px 12px; border-radius: 10px;

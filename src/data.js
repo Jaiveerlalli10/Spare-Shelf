@@ -603,6 +603,44 @@ export function pickupsFromChats(chats) {
   return all;
 }
 
+// ---------- Live location (the giver's, during a hand-off with a pickup spot) ----------
+//
+// While the giver heads to the pickup spot, their exact live position is written to
+// chats/{pairId}/live/{uid}: { lat, lng, accuracy, updatedAt }. Only the two people in that
+// chat can read it (see firestore.rules). It's deleted when sharing stops (paused or hand-off done), and anything
+// older than LIVE_FRESH_MS is ignored (e.g. if they just closed the app).
+
+export const LIVE_FRESH_MS = 3 * 60 * 1000;
+
+export async function shareLiveLocation(user, otherId, pos) {
+  const data = { lat: pos.lat, lng: pos.lng, accuracy: Math.round(pos.accuracy || 0), updatedAt: Date.now() };
+  const chatId = pairId(user.uid, otherId);
+  if (!isDemoMode) return setDoc(doc(db, "chats", chatId, "live", user.uid), data);
+  demo.setLive(chatId, user.uid, data);
+}
+
+export async function stopSharingLiveLocation(user, otherId) {
+  const chatId = pairId(user.uid, otherId);
+  if (!isDemoMode) return deleteDoc(doc(db, "chats", chatId, "live", user.uid));
+  demo.setLive(chatId, user.uid, null);
+}
+
+/** Calls callback({ lat, lng, accuracy, updatedAt } or null) with `uid`'s shared live location in this chat. */
+export function watchLiveLocation(chatId, uid, callback) {
+  if (!isDemoMode) {
+    return listen(
+      doc(db, "chats", chatId, "live", uid),
+      (snap) => callback(snap.exists() ? snap.data() : null),
+      (err) => {
+        console.error("Couldn't load a live location (check Firestore rules):", err);
+        callback(null);
+      }
+    );
+  }
+  callback(demo.getLive(chatId, uid));
+  return demo.on("live", () => callback(demo.getLive(chatId, uid)));
+}
+
 // ---------- Demo mode (fake data saved in this browser) ----------
 
 const HOUR = 60 * 60 * 1000;
@@ -670,7 +708,7 @@ function seedPantry() {
 }
 
 const demo = (() => {
-  const listeners = { user: new Set(), posts: new Set(), pantry: new Set(), profile: new Set(), chats: new Set() };
+  const listeners = { user: new Set(), posts: new Set(), pantry: new Set(), profile: new Set(), chats: new Set(), live: new Set() };
   const load = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   };
@@ -687,6 +725,7 @@ const demo = (() => {
   let pantry = load("spareShelf.pantry", null) || seedPantry();
   const setPantry = (next) => { pantry = next; save("spareShelf.pantry", pantry); emit("pantry"); };
   let chats = load("spareShelf.chats", []);
+  let live = load("spareShelf.live", {}); // "chatId/uid" -> location
   let messages = load("spareShelf.messages", {});
   let reviews = load("spareShelf.reviews", null) || seedReviews();
   const saveChats = () => { save("spareShelf.chats", chats); save("spareShelf.messages", messages); emit("chats"); };
@@ -733,6 +772,14 @@ const demo = (() => {
     removePantryItem(id) { setPantry(pantry.filter((i) => i.id !== id)); },
 
     getChats: () => [...chats],
+    getLive: (chatId, uid) => live[`${chatId}/${uid}`] || null,
+    setLive(chatId, uid, data) {
+      live = { ...live };
+      if (data) live[`${chatId}/${uid}`] = data;
+      else delete live[`${chatId}/${uid}`];
+      save("spareShelf.live", live);
+      emit("live");
+    },
     setPickup(chatId, postId, value) {
       updateChat(chatId, (c) => ({ ...c, pickups: { ...(c.pickups || {}), [postId]: value } }));
       saveChats();
@@ -786,6 +833,7 @@ export function resetDemoData() {
     localStorage.removeItem("spareShelf.pantry");
     localStorage.removeItem("spareShelf.chats");
     localStorage.removeItem("spareShelf.messages");
+    localStorage.removeItem("spareShelf.live");
     localStorage.removeItem("spareShelf.reviews");
   } catch { /* ignore */ }
   window.location.reload();

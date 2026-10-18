@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useRef, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, setPickupSpot, acceptPickupSpot, pickupsFromChats, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, setPickupSpot, acceptPickupSpot, pickupsFromChats, handoffRoles, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -14,6 +14,7 @@ import ReviewSheet from "./components/ReviewSheet";
 import { milesToPost, publicPlaceLabel } from "./location";
 import MapPanel from "./components/MapPanel";
 import { useDeviceLocation } from "./useDeviceLocation";
+import { useLiveSharing } from "./useLiveSharing";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -188,6 +189,38 @@ export default function App() {
     setPickingId(null);
     setMapTargetId(post.id); // show the spot you just chose
   }
+  // ---------- The giver's live location ----------
+  // While you're GIVING something and a pickup spot is set, the receiver sees your live location
+  // (so they can tell you're on the way, with an ETA). You can pause it per person; it stops
+  // by itself once the hand-off is done.
+  const pauseKey = uid ? `spareShelf.pausedSharing.${uid}` : "";
+  const [paused, setPaused] = useState([]); // receivers I paused sharing with
+  useEffect(() => {
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(pauseKey) || "[]"); } catch { /* ignore */ }
+    setPaused(Array.isArray(saved) ? saved : []);
+  }, [pauseKey]);
+  function togglePauseSharing(otherId) {
+    const next = paused.includes(otherId) ? paused.filter((id) => id !== otherId) : [...paused, otherId];
+    setPaused(next);
+    try { localStorage.setItem(pauseKey, JSON.stringify(next)); } catch { /* ignore */ }
+  }
+  const receiversWithSpot = [...new Set(
+    posts.filter((p) => user && p.status === "claimed" && pickups[p.id] && handoffRoles(p).giverId === uid)
+      .map((p) => handoffRoles(p).receiverId)
+  )].sort();
+  const sharingWith = receiversWithSpot.filter((id) => !paused.includes(id));
+  // When sharing stops for someone (paused, or the hand-off finished), delete my live location for them.
+  const sharedBefore = useRef([]);
+  useEffect(() => {
+    for (const id of sharedBefore.current) {
+      if (!sharingWith.includes(id)) stopSharingLiveLocation(user, id).catch(() => {});
+    }
+    sharedBefore.current = sharingWith;
+  }, [sharingWith.join(",")]);
+  useLiveSharing(user, device.pos, sharingWith);
+  const liveShare = { sharingWith, paused, onTogglePause: togglePauseSharing, liveOn: device.status === "on" };
+
   async function acceptPickup(post) {
     try {
       await acceptPickupSpot(user, post, pickups[post.id]);
@@ -327,7 +360,7 @@ export default function App() {
         ) : activeTab === "messages" ? (
           <Messages user={user} chats={chats} posts={posts} openWith={openChatWith}
             onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} onDirections={showDirections}
-            onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onReview={setReviewPost} />
+            onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onReview={setReviewPost} liveShare={liveShare} />
         ) : (
         <>
           <div className="filters">
@@ -370,7 +403,7 @@ export default function App() {
       {/* ---------- Right column: map + directions ---------- */}
       {showApp && (
         <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} device={device} posts={posts} user={user} target={mapTarget}
-          pickups={pickups} picking={picking} onChoosePickup={choosePickup}
+          pickups={pickups} picking={picking} onChoosePickup={choosePickup} liveShare={liveShare}
           onPickSave={savePickup} onPickCancel={() => setPickingId(null)}
           onSelect={(post) => setMapTargetId(post.id)} onClear={() => setMapTargetId(null)} />
       )}
