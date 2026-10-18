@@ -22,6 +22,7 @@ import { milesBetween, approxPoint } from "./location";
 import { NEAR_CAMPUS_MILES } from "./housing";
 import { hasProfanity, PROFANITY_MESSAGE } from "./profanity";
 import { NOTE_MAX, otherParty, reviewDocId, tagsFor } from "./reviews";
+import { communityId } from "./community";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
 import {
   addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction,
@@ -168,6 +169,53 @@ export function getPublicProfile(uid) {
     publicProfileCache.set(uid, request);
   }
   return publicProfileCache.get(uid);
+}
+
+// ---------- Community (same dorm or apartment) ----------
+//
+// communities/{communityId}/members/{uid} is readable only by people who have joined
+// that building. The id comes from the campus name plus the housing label.
+
+/** Puts this person in their building's community, and leaves the previous one if they moved. */
+export async function syncCommunity(user, profile) {
+  const id = communityId(profile && profile.universityName, profile && profile.housingLabel);
+  if (!id || !user) return "";
+  const member = {
+    name: (user.name || profile.name || "Neighbor").slice(0, 119),
+    photoURL: profile.photoURL || "",
+    updatedAt: Date.now(),
+  };
+  const previous = profile.communityId || "";
+  if (isDemoMode) {
+    demo.joinCommunity(user.uid, previous, id, member);
+    if (previous !== id) demo.setProfile(user.uid, { ...profile, communityId: id });
+    return id;
+  }
+  if (previous !== id) await setDoc(doc(db, "users", user.uid), { communityId: id }, { merge: true });
+  await setDoc(doc(db, "communities", id, "members", user.uid), member);
+  if (previous && previous !== id) await deleteDoc(doc(db, "communities", previous, "members", user.uid));
+  return id;
+}
+
+/** Calls callback(members) for everyone who joined this building. */
+export function watchCommunityMembers(communityIdValue, onNext, onError) {
+  if (!communityIdValue) {
+    onNext([]);
+    return () => {};
+  }
+  if (isDemoMode) {
+    const send = () => onNext(demo.communityMembers(communityIdValue));
+    send();
+    return demo.on("community", send);
+  }
+  return listen(
+    collection(db, "communities", communityIdValue, "members"),
+    (snap) => onNext(snap.docs.map((d) => ({ uid: d.id, ...d.data() }))),
+    (err) => {
+      console.error("Couldn't load your dorm or apartment (check Firestore rules):", err);
+      if (onError) onError(err);
+    }
+  );
 }
 
 /** Publishes this person's name and photo ("" = no photo). */
@@ -662,6 +710,10 @@ function seedPosts() {
       expiresOn: daysFromNow(5), ownerId: "sam", ownerName: "Sam", ownerEmail: "sam@uw.edu", createdAt: now - 5 * HOUR },
     { ...base, id: "s4", type: "request", item: "Soy sauce", quantity: "2 tbsp", location: "Lander Hall", estValue: 1,
       ownerId: "priya", ownerName: "Priya", ownerEmail: "priya@uw.edu", createdAt: now - 8 * HOUR },
+    { ...base, id: "s10", type: "offer", item: "Oat milk", quantity: "1 carton", location: "Lander Hall", estValue: 3,
+      expiresOn: daysFromNow(4), ownerId: "chris", ownerName: "Chris", ownerEmail: "chris@uw.edu", createdAt: now - 3 * HOUR },
+    { ...base, id: "s11", type: "offer", item: "Bananas", quantity: "3", location: "Alder Hall", estValue: 1,
+      expiresOn: daysFromNow(2), ownerId: "riley", ownerName: "Riley", ownerEmail: "riley@uw.edu", createdAt: now - 2 * HOUR },
     { ...base, id: "s7", type: "offer", item: "Garlic", quantity: "1 head", location: "McCarty Hall", estValue: 1,
       ownerId: "nia", ownerName: "Nia", ownerEmail: "nia@uw.edu", createdAt: now - 3 * HOUR },
     { ...base, id: "s8", type: "offer", item: "Green onions", quantity: "1 bunch", location: "West Campus", estValue: 1,
@@ -707,8 +759,20 @@ function seedPantry() {
   ];
 }
 
+function seedCommunities() {
+  const lander = communityId("University of Washington-Seattle Campus", "Lander Hall");
+  const alder = communityId("University of Washington-Seattle Campus", "Alder Hall");
+  const mccarty = communityId("University of Washington-Seattle Campus", "McCarty Hall");
+  const member = (name) => ({ name, photoURL: "", updatedAt: 1 });
+  return {
+    [lander]: { priya: member("Priya"), chris: member("Chris") },
+    [alder]: { maya: member("Maya"), riley: member("Riley") },
+    [mccarty]: { nia: member("Nia") },
+  };
+}
+
 const demo = (() => {
-  const listeners = { user: new Set(), posts: new Set(), pantry: new Set(), profile: new Set(), chats: new Set(), live: new Set() };
+  const listeners = { user: new Set(), posts: new Set(), pantry: new Set(), profile: new Set(), chats: new Set(), live: new Set(), community: new Set() };
   const load = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   };
@@ -728,6 +792,8 @@ const demo = (() => {
   let live = load("spareShelf.live", {}); // "chatId/uid" -> location
   let messages = load("spareShelf.messages", {});
   let reviews = load("spareShelf.reviews", null) || seedReviews();
+  let communities = load("spareShelf.community", null) || seedCommunities();
+  const setCommunities = (next) => { communities = next; save("spareShelf.community", communities); emit("community"); };
   const saveChats = () => { save("spareShelf.chats", chats); save("spareShelf.messages", messages); emit("chats"); };
   const updateChat = (id, fn) => { chats = chats.map((c) => (c.id === id ? fn(c) : c)); };
   const addMessage = (chatId, msg) => {
@@ -804,6 +870,20 @@ const demo = (() => {
         senderId: other.id, senderName: other.name, text: "Sounds good! See you there 🙂", createdAt: Date.now(),
       }), 1500);
     },
+    joinCommunity(uid, previousId, nextId, member) {
+      const next = { ...communities };
+      if (previousId && previousId !== nextId && next[previousId]) {
+        const group = { ...next[previousId] };
+        delete group[uid];
+        next[previousId] = group;
+      }
+      next[nextId] = { ...(next[nextId] || {}), [uid]: member };
+      setCommunities(next);
+    },
+    communityMembers(id) {
+      const group = communities[id] || {};
+      return Object.entries(group).map(([uid, data]) => ({ uid, ...data }));
+    },
     getReviewsFor: (uid) => reviews.filter((r) => r.toId === uid),
     getReview: (id) => reviews.find((r) => r.id === id) || null,
     setReview(review) {
@@ -835,6 +915,7 @@ export function resetDemoData() {
     localStorage.removeItem("spareShelf.messages");
     localStorage.removeItem("spareShelf.live");
     localStorage.removeItem("spareShelf.reviews");
+    localStorage.removeItem("spareShelf.community");
   } catch { /* ignore */ }
   window.location.reload();
 }

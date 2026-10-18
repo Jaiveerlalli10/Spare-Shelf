@@ -1,0 +1,170 @@
+// Neighbors who live in the same dorm or apartment, and what they are sharing.
+import { useEffect, useState } from "react";
+import { claimPost, deletePost, syncCommunity, watchCommunityMembers } from "../data";
+import { communityId, communityPeople } from "../community";
+import { foodEmoji } from "../foodEmoji";
+import Avatar from "./Avatar";
+import { useReputation } from "./Reputation";
+
+function ItemRow({ post, mine, onClaim }) {
+  const open = post.status === "open";
+  return (
+    <li className="community-item">
+      <span className="community-emoji" aria-hidden>{foodEmoji(post.item)}</span>
+      <span className="what">
+        <strong>{post.item}</strong>
+        {post.quantity && <span className="muted"> {post.quantity}</span>}
+      </span>
+      {mine && open && (
+        <button className="btn ghost small" onClick={() => deletePost(post)}>Delete</button>
+      )}
+      {mine && !open && <span className="status claimed">Claimed</span>}
+      {!mine && open && (
+        <button className="btn primary small" onClick={() => onClaim(post)}>
+          {post.type === "offer" ? "I'll take it" : "I can help"}
+        </button>
+      )}
+      {!mine && !open && <span className="status claimed">Claimed</span>}
+    </li>
+  );
+}
+
+function Column({ title, tone, posts, empty, mine, onClaim }) {
+  return (
+    <div className={tone}>
+      <h3>{title}</h3>
+      {posts.length === 0 ? (
+        <p className="muted community-empty-col">{empty}</p>
+      ) : (
+        <ul className="community-items">
+          {posts.map((post) => (
+            <ItemRow key={post.id} post={post} mine={mine} onClaim={onClaim} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function PersonSquare({ person, mine, onClaim }) {
+  const summary = useReputation(person.uid);
+  const score = summary ? summary.average.toFixed(1) : "";
+  const reviewLabel = summary
+    ? `${score} stars from ${summary.count} review${summary.count === 1 ? "" : "s"}`
+    : "No ratings yet";
+  return (
+    <li className="card community-card">
+      <div className="community-card-top">
+        <Avatar name={person.name} photoURL={person.photoURL} size="md" />
+        <div className="community-card-id">
+          <strong>{mine ? `${person.name} (you)` : person.name}</strong>
+          <span className="rep" aria-label={reviewLabel}>
+            {summary ? (
+              <>
+                <span className="rep-score">★ {score}</span>
+                <span className="muted community-count">{summary.count}</span>
+              </>
+            ) : (
+              <span className="muted community-count">No ratings yet</span>
+            )}
+          </span>
+          {summary && summary.tags.length > 0 && (
+            <span className="community-tags">
+              {summary.tags.slice(0, 2).map((tag) => <span key={tag} className="rep-tag">{tag}</span>)}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="community-card-body">
+        <Column title="Offering" tone="offers" posts={person.offers} empty="Nothing offered right now" mine={mine} onClaim={onClaim} />
+        <Column title="Looking to buy" tone="requests" posts={person.requests} empty="Not looking for anything right now" mine={mine} onClaim={onClaim} />
+      </div>
+    </li>
+  );
+}
+
+export default function Community({ user, profile, posts, here }) {
+  const id = communityId(profile.universityName, profile.housingLabel);
+  const place = profile.housingLabel;
+  const [members, setMembers] = useState([]);
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState("");
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let stop = () => {};
+    let cancelled = false;
+    setError("");
+    setReady(false);
+    setMembers([]);
+    syncCommunity(user, profile)
+      .then(() => {
+        if (cancelled) return;
+        stop = watchCommunityMembers(id, (list) => {
+          if (cancelled) return;
+          setMembers(list);
+          setReady(true);
+        }, () => {
+          if (cancelled) return;
+          setReady(true);
+          setError(`The rest of ${place} could not be loaded. Publish the latest Firestore rules, then refresh.`);
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setReady(true);
+        setError(`Could not add you to ${place}. Publish the latest Firestore rules, then refresh.`);
+      });
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [user.uid, id, user.name, profile.photoURL, place]);
+
+  const people = communityPeople({
+    me: { uid: user.uid, name: user.name, photoURL: profile.photoURL || "" },
+    members,
+    posts,
+    search,
+  });
+  const others = people.filter((person) => person.uid !== user.uid);
+  const term = search.trim();
+
+  async function onClaim(post) {
+    try {
+      await claimPost(user, post, here);
+    } catch (err) {
+      alert("Couldn't respond: " + err.message);
+    }
+  }
+
+  return (
+    <section className="community">
+      <input
+        className="search community-search"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder={`Search names or items in ${place}`}
+        aria-label={`Search names or items in ${place}`}
+      />
+      {error && <p className="error community-note">{error}</p>}
+      {!error && ready && !term && others.length === 0 && (
+        <p className="muted community-note">
+          You're the first from {place} on Spare Shelf. When a neighbor joins with this same dorm or apartment, their offers and requests show up here.
+        </p>
+      )}
+
+      {!ready ? (
+        <p className="empty">Loading {place}…</p>
+      ) : term && people.length === 0 ? (
+        <p className="empty">No one in {place} matches “{term}”.</p>
+      ) : (
+        <ul className="community-grid">
+          {people.map((person) => (
+            <PersonSquare key={person.uid} person={person} mine={person.uid === user.uid} onClaim={onClaim} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}

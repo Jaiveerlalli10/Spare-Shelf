@@ -11,6 +11,7 @@ import Avatar from "./components/Avatar";
 import Recipes from "./components/Recipes";
 import Messages from "./components/Messages";
 import ReviewSheet from "./components/ReviewSheet";
+import Community from "./components/Community";
 import { milesToPost, publicPlaceLabel } from "./location";
 import MapPanel from "./components/MapPanel";
 import { useDeviceLocation } from "./useDeviceLocation";
@@ -242,6 +243,7 @@ export default function App() {
   const TABS = [
     // `tone` gives each section its own color (see the .tone-* classes in styles.css).
     { id: "board", label: "Board", icon: "🏠", tone: "basil", title: "Board", sub: "What your neighbors are offering and asking for." },
+    { id: "community", label: "Community", icon: "🏘️", tone: "berry", title: complete ? profile.housingLabel : "Community", sub: complete ? `Neighbors in ${profile.housingLabel}. Offer extras, or grab something without a trip to the store.` : "What your dorm or apartment is offering and looking for." },
     { id: "mine", label: "My posts", icon: "📝", tone: "sky", title: "My posts", sub: "Posts you made or claimed." },
     { id: "pantry", label: "Pantry", icon: "🥫", tone: "saffron", title: "Pantry", sub: "What you have at home. Only you can see this." },
     { id: "recipes", label: "Recipes", icon: "🍳", tone: "tomato", title: "Recipes", sub: "Cook with what you have. Borrow the rest." },
@@ -256,7 +258,7 @@ export default function App() {
   }
 
   return (
-    <div className={showApp ? "layout with-map" : "layout"}>
+    <div className={showApp && activeTab !== "community" ? "layout with-map" : "layout"}>
       {/* ---------- Left column: brand, you, navigation, impact ---------- */}
       <aside className="sidebar">
         <div className="brand">
@@ -353,7 +355,9 @@ export default function App() {
             homeLabel={complete ? publicPlaceLabel(profile) : ""} initial={draft} onDone={closeForm} />
         )}
 
-        {activeTab === "pantry" ? (
+        {activeTab === "community" ? (
+          <Community user={user} profile={profile} posts={posts} here={here} />
+        ) : activeTab === "pantry" ? (
           <Pantry user={user} posts={posts} onShare={shareFromPantry} onMessage={openChat} />
         ) : activeTab === "recipes" ? (
           <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} />
@@ -401,7 +405,7 @@ export default function App() {
       </div>
 
       {/* ---------- Right column: map + directions ---------- */}
-      {showApp && (
+      {showApp && activeTab !== "community" && (
         <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} device={device} posts={posts} user={user} target={mapTarget}
           pickups={pickups} picking={picking} onChoosePickup={choosePickup} liveShare={liveShare}
           onPickSave={savePickup} onPickCancel={() => setPickingId(null)}
