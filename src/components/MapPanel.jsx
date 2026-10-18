@@ -331,66 +331,69 @@ export default function MapPanel({
     }
   }
 
-  // ---------- The giver's live location + ETA (shown to the receiver) ----------
+  // ---------- The other person's live location + ETA to the pickup spot (both people see each other) ----------
   const roles = target && target.status === "claimed" ? handoffRoles(target) : null;
-  const giverToWatch = roles && user && roles.receiverId === user.uid ? roles.giverId : null;
-  const [giverLive, setGiverLive] = useState(null);
+  const otherToWatch = roles && user
+    ? (roles.giverId === user.uid ? roles.receiverId : roles.receiverId === user.uid ? roles.giverId : null)
+    : null;
+  const otherPersonName = roles && user ? (roles.giverId === user.uid ? roles.receiverName : roles.giverName) : "";
+  const [otherLive, setOtherLive] = useState(null);
   useEffect(() => {
-    setGiverLive(null);
-    if (!giverToWatch) return;
-    return watchLiveLocation(pairId(user.uid, giverToWatch), giverToWatch, setGiverLive);
-  }, [giverToWatch, user?.uid]);
+    setOtherLive(null);
+    if (!otherToWatch) return;
+    return watchLiveLocation(pairId(user.uid, otherToWatch), otherToWatch, setOtherLive);
+  }, [otherToWatch, user?.uid]);
   const [now, setNow] = useState(Date.now()); // keeps "updated 20s ago" and staleness current
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 10000);
     return () => clearInterval(id);
   }, []);
-  const giverNow = giverLive && now - giverLive.updatedAt < LIVE_FRESH_MS ? giverLive : null;
+  const otherNow = otherLive && now - otherLive.updatedAt < LIVE_FRESH_MS ? otherLive : null;
 
   // Their dot on the map.
-  const giverDotRef = useRef(null);
+  const otherDotRef = useRef(null);
   useEffect(() => {
     const map = mapRef.current;
-    if (giverDotRef.current) giverDotRef.current.remove();
-    giverDotRef.current = null;
-    if (!map || !giverNow || !roles) return;
-    giverDotRef.current = L.marker([giverNow.lat, giverNow.lng], {
+    if (otherDotRef.current) otherDotRef.current.remove();
+    otherDotRef.current = null;
+    if (!map || !otherNow || !roles) return;
+    otherDotRef.current = L.marker([otherNow.lat, otherNow.lng], {
       icon: L.divIcon({ className: "map-other", html: "<span>🧑</span>", iconSize: [30, 30] }),
-      title: `${roles.giverName} (live)`,
+      title: `${otherPersonName} (live)`,
       zIndexOffset: 990,
     }).addTo(map);
-  }, [giverNow?.lat, giverNow?.lng, Boolean(giverNow), roles?.giverName]);
+  }, [otherNow?.lat, otherNow?.lng, Boolean(otherNow), otherPersonName]);
 
   // Their walking ETA to the pickup spot (re-checked after they move ~40 m).
-  const [giverFrom, setGiverFrom] = useState(null);
+  const [otherFrom, setOtherFrom] = useState(null);
   useEffect(() => {
-    if (!giverNow) { setGiverFrom(null); return; }
-    setGiverFrom((prev) => (prev && L.latLng(prev.lat, prev.lng).distanceTo([giverNow.lat, giverNow.lng]) < 40
-      ? prev : { lat: giverNow.lat, lng: giverNow.lng }));
-  }, [giverNow?.lat, giverNow?.lng, Boolean(giverNow)]);
-  const [giverEta, setGiverEta] = useState(null); // { arrived } or { duration, distance }
-  const giverRouteRef = useRef(null);
+    if (!otherNow) { setOtherFrom(null); return; }
+    setOtherFrom((prev) => (prev && L.latLng(prev.lat, prev.lng).distanceTo([otherNow.lat, otherNow.lng]) < 40
+      ? prev : { lat: otherNow.lat, lng: otherNow.lng }));
+  }, [otherNow?.lat, otherNow?.lng, Boolean(otherNow)]);
+  const [otherEta, setOtherEta] = useState(null); // { arrived } or { duration, distance }
+  const otherRouteRef = useRef(null);
   useEffect(() => {
     const map = mapRef.current;
-    if (giverRouteRef.current) giverRouteRef.current.remove();
-    giverRouteRef.current = null;
-    setGiverEta(null);
-    if (!map || !giverFrom || !targetPickup) return;
+    if (otherRouteRef.current) otherRouteRef.current.remove();
+    otherRouteRef.current = null;
+    setOtherEta(null);
+    if (!map || !otherFrom || !targetPickup) return;
     const to = { lat: targetPickup.lat, lng: targetPickup.lng };
-    const meters = map.distance([giverFrom.lat, giverFrom.lng], [to.lat, to.lng]);
-    if (meters < 40) { setGiverEta({ arrived: true }); return; }
+    const meters = map.distance([otherFrom.lat, otherFrom.lng], [to.lat, to.lng]);
+    if (meters < 40) { setOtherEta({ arrived: true }); return; }
     const ctrl = new AbortController();
-    walkingRoute(giverFrom, to, ctrl.signal)
+    walkingRoute(otherFrom, to, ctrl.signal)
       .then((r) => {
-        giverRouteRef.current = L.geoJSON(r.geometry, { style: { color: "#3797f0", weight: 4, opacity: 0.8, dashArray: "2 8", lineCap: "round" } }).addTo(map);
-        setGiverEta({ duration: r.duration, distance: r.distance });
+        otherRouteRef.current = L.geoJSON(r.geometry, { style: { color: "#3797f0", weight: 4, opacity: 0.8, dashArray: "2 8", lineCap: "round" } }).addTo(map);
+        setOtherEta({ duration: r.duration, distance: r.distance });
       })
       .catch((err) => {
         if (err.name === "AbortError") return;
-        setGiverEta({ duration: meters / 1.35, distance: meters });
+        setOtherEta({ duration: meters / 1.35, distance: meters });
       });
     return () => ctrl.abort();
-  }, [giverFrom?.lat, giverFrom?.lng, targetPickup?.lat, targetPickup?.lng]);
+  }, [otherFrom?.lat, otherFrom?.lng, targetPickup?.lat, targetPickup?.lng]);
 
   return (
     <aside className="map-panel" id="map-panel" aria-label="Map and directions">
@@ -498,9 +501,11 @@ export default function MapPanel({
             </div>
           )}
           {!goal && !iGive && <p className="muted">{noTripReason(target, user)}</p>}
-          {iGive && <p className="muted">You're giving this, so {openOffer ? "whoever takes it" : otherName} comes to the pickup spot.</p>}
-          {iGive && targetPickup && roles && (
-            <p className="map-from"><LiveNote liveShare={liveShare} otherId={roles.receiverId} otherName={otherName} /></p>
+          {iGive && !targetPickup && (
+            <p className="muted">Once you choose a pickup spot, you'll both get directions to it.</p>
+          )}
+          {targetPickup && otherToWatch && (
+            <p className="map-from"><LiveNote liveShare={liveShare} otherId={otherToWatch} otherName={otherPersonName} /></p>
           )}
           {goal && !origin && <p className="muted">Allow location access, or finish your profile, to get directions.</p>}
           {goal && origin && (
@@ -517,9 +522,11 @@ export default function MapPanel({
               {goal.kind === "proposed" && (
                 <>
                   📍 To the suggested pickup spot: <strong>{goal.label}</strong>
-                  {onAcceptPickup && (
-                    <button className="btn primary small map-accept" onClick={() => onAcceptPickup(target)}>Accept spot</button>
-                  )}
+                  {iGive
+                    ? <span className="muted"> · waiting for {goal.name} to accept</span>
+                    : onAcceptPickup && (
+                      <button className="btn primary small map-accept" onClick={() => onAcceptPickup(target)}>Accept spot</button>
+                    )}
                 </>
               )}
               {goal.kind === "area" && (
@@ -528,18 +535,18 @@ export default function MapPanel({
             </p>
           )}
           {/* Receiver: where the giver is, and how long until they reach the pickup spot */}
-          {giverToWatch && targetPickup && (
+          {otherToWatch && targetPickup && (
             <p className="map-other-eta">
-              {giverNow ? (
-                giverEta && giverEta.arrived
-                  ? <>🧑 <strong>{roles.giverName}</strong> is at the pickup spot.</>
-                  : giverEta
-                    ? <>🧑 <strong>{roles.giverName}</strong>: <b>{Math.max(1, Math.round(giverEta.duration / 60))} min</b> from the pickup spot ({formatWalkDistance(giverEta.distance)})</>
-                    : <>🧑 <strong>{roles.giverName}</strong> is on the map.</>
+              {otherNow ? (
+                otherEta && otherEta.arrived
+                  ? <>🧑 <strong>{otherPersonName}</strong> is at the pickup spot.</>
+                  : otherEta
+                    ? <>🧑 <strong>{otherPersonName}</strong>: <b>{Math.max(1, Math.round(otherEta.duration / 60))} min</b> from the pickup spot ({formatWalkDistance(otherEta.distance)})</>
+                    : <>🧑 <strong>{otherPersonName}</strong> is on the map.</>
               ) : (
-                <span className="muted">🧑 {roles.giverName}'s live location isn't available right now.</span>
+                <span className="muted">🧑 {otherPersonName}'s live location isn't available right now.</span>
               )}
-              {giverNow && <span className="muted"> · updated {agoText(now - giverNow.updatedAt)}</span>}
+              {otherNow && <span className="muted"> · updated {agoText(now - otherNow.updatedAt)}</span>}
             </p>
           )}
           {routeState === "loading" && <p className="muted">Finding a walking route…</p>}

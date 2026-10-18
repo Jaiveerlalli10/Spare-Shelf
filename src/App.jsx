@@ -208,10 +208,9 @@ export default function App() {
     await request.save(spot);
     setPickRequest(null);
   }
-  // ---------- The giver's live location ----------
-  // While you're GIVING something and a pickup spot is set, the receiver sees your live location
-  // (so they can tell you're on the way, with an ETA). You can pause it per person; it stops
-  // by itself once the hand-off is done.
+  // ---------- Live location during a hand-off ----------
+  // Once a hand-off has a pickup spot, BOTH people see each other's live location (and ETA to the
+  // spot). You can pause yours per person; it stops by itself once the hand-off is done.
   const pauseKey = uid ? `spareShelf.pausedSharing.${uid}` : "";
   const [paused, setPaused] = useState([]); // receivers I paused sharing with
   useEffect(() => {
@@ -224,11 +223,11 @@ export default function App() {
     setPaused(next);
     try { localStorage.setItem(pauseKey, JSON.stringify(next)); } catch { /* ignore */ }
   }
-  const receiversWithSpot = [...new Set(
-    posts.filter((p) => user && p.status === "claimed" && pickups[p.id] && handoffRoles(p).giverId === uid)
-      .map((p) => handoffRoles(p).receiverId)
+  const partnersWithSpot = [...new Set(
+    posts.filter((p) => user && p.status === "claimed" && pickups[p.id] && (p.ownerId === uid || p.claimedById === uid))
+      .map((p) => (p.ownerId === uid ? p.claimedById : p.ownerId))
   )].sort();
-  const sharingWith = receiversWithSpot.filter((id) => !paused.includes(id));
+  const sharingWith = partnersWithSpot.filter((id) => !paused.includes(id));
   // When sharing stops for someone (paused, or the hand-off finished), delete my live location for them.
   const sharedBefore = useRef([]);
   useEffect(() => {

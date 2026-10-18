@@ -126,11 +126,19 @@ function PickupStatus({ post, user, pickup, onAcceptPickup, liveShare }) {
     );
   }
   if (!pickup) return <p className="card-pickup muted">Waiting for {giverName} to choose a pickup spot.</p>;
-  if (pickup.accepted) return <p className="card-pickup agreed">✅ Pickup at <strong>{pickup.label}</strong></p>;
+  if (pickup.accepted) {
+    return (
+      <div className="card-pickup agreed">
+        <span>✅ Pickup at <strong>{pickup.label}</strong></span>
+        <LiveNote liveShare={liveShare} otherId={giverId} otherName={giverName} />
+      </div>
+    );
+  }
   return (
     <div className="card-pickup">
       <span>📍 {giverName} suggests <strong>{pickup.label}</strong></span>
       {onAcceptPickup && <button className="btn primary small" onClick={() => onAcceptPickup(post)}>Accept</button>}
+      <LiveNote liveShare={liveShare} otherId={giverId} otherName={giverName} />
     </div>
   );
 }

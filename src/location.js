@@ -154,17 +154,24 @@ export function publicPlaceLabel(profile) {
 // two people's private chat (chats/{pairId}.pickups.{postId}: { lat, lng, label, setBy, setAt, accepted }).
 
 /**
- * Where the receiver should walk for this post: the pickup spot if there is one, otherwise the giver's
- * general area (kind "area"). Pickup kinds: "listed" (shown on an unclaimed offer), "proposed"
- * (claimed, not accepted yet), "agreed". null if `user` doesn't travel.
+ * Where `user` should walk for this post, or null if they don't travel.
+ * - Once there's a pickup spot, BOTH people in the hand-off walk to it (and anyone browsing an
+ *   unclaimed offer can get directions to its listed spot).
+ *   Kinds: "listed" (unclaimed offer), "proposed" (claimed, not accepted yet), "agreed".
+ * - With no pickup spot yet, only the receiver gets directions, to the giver's area (kind "area").
+ * `name` is the other person in the hand-off.
  */
 export function tripFor(post, user, pickup) {
-  const area = pickupSpot(post, user);
-  if (!area) return null;
+  if (!post || !user || post.status === "completed") return null;
   const usable = pickup && Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng);
-  if (usable && (post.status === "claimed" || post.type === "offer")) {
-    const kind = post.status !== "claimed" ? "listed" : pickup.accepted ? "agreed" : "proposed";
-    return { lat: pickup.lat, lng: pickup.lng, name: area.name, label: pickup.label, kind };
+  const inHandoff = post.status === "claimed" && (post.ownerId === user.uid || post.claimedById === user.uid);
+  const otherName = post.ownerId === user.uid ? post.claimedByName : post.ownerName;
+  if (usable && inHandoff) {
+    return { lat: pickup.lat, lng: pickup.lng, name: otherName, label: pickup.label, kind: pickup.accepted ? "agreed" : "proposed" };
   }
-  return { ...area, kind: "area" };
+  if (usable && post.status === "open" && post.type === "offer") {
+    return { lat: pickup.lat, lng: pickup.lng, name: post.ownerName, label: pickup.label, kind: "listed" };
+  }
+  const area = pickupSpot(post, user);
+  return area ? { ...area, kind: "area" } : null;
 }
