@@ -25,7 +25,7 @@ const firstName = (name) => (name || "").split(" ")[0];
 // `onReview(post)` opens the hand-off review sheet.
 // `pickup`: the pickup spot for this hand-off (if chosen); `onChoosePickup(post)` lets the giver choose it.
 // `onAcceptPickup(post)` lets the receiver accept it; `liveShare` controls the giver's live location (Pause).
-export default function PostCard({ post, user, here, onMessage, onClaim, onReview, onDirections, pickup, declinedPickup, onChoosePickup, onAcceptPickup, onDeclinePickup, liveShare, index = 0, focused = false }) {
+export default function PostCard({ post, user, here, onMessage, onClaim, onReview, onDirections, pickup, declinedPickup, onChoosePickup, onAcceptPickup, onDeclinePickup, onDeclineForGood, liveShare, index = 0, focused = false }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
@@ -97,7 +97,7 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
       {post.notes && <p className="notes">{post.notes}</p>}
       {user && inChat && post.status === "claimed" && (
         <PickupStatus post={post} user={user} pickup={pickup} declined={declinedPickup}
-          onAcceptPickup={onAcceptPickup} onDeclinePickup={onDeclinePickup} liveShare={liveShare} />
+          onAcceptPickup={onAcceptPickup} onDeclinePickup={onDeclinePickup} onDeclineForGood={onDeclineForGood} liveShare={liveShare} />
       )}
       <div className="actions">
         {/* Pickup spots take turns: the giver suggests first, and after a decline the decliner suggests next. */}
@@ -124,22 +124,28 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
  * Pickup spot status for the two people in a hand-off. Whoever suggested the spot waits;
  * the other person can accept or decline it (and then suggest their own).
  */
-function PickupStatus({ post, user, pickup, declined, onAcceptPickup, onDeclinePickup, liveShare }) {
+function PickupStatus({ post, user, pickup, declined, onAcceptPickup, onDeclinePickup, onDeclineForGood, liveShare }) {
   const { giverId, giverName, receiverId, receiverName } = handoffRoles(post);
   const iGive = giverId === user.uid;
   const otherId = iGive ? receiverId : giverId;
   const otherName = iGive ? receiverName : giverName;
   const live = <LiveNote liveShare={liveShare} otherId={otherId} otherName={otherName} />;
+  const forGood = onDeclineForGood && (
+    <button className="btn ghost small danger" onClick={() => onDeclineForGood(post)}>Decline for good</button>
+  );
 
   if (!pickup) {
     if (declined) {
       const mineWasDeclined = pickupProposer(post, declined) === user.uid;
       return (
-        <p className="card-pickup declined">
-          {mineWasDeclined
-            ? <>❌ {otherName} declined <strong>{declined.label}</strong>. Waiting for {otherName} to suggest another spot.</>
-            : <>❌ You declined <strong>{declined.label}</strong>. Suggest a spot that works for you.</>}
-        </p>
+        <div className="card-pickup declined">
+          <span>
+            {mineWasDeclined
+              ? <>❌ {otherName} declined <strong>{declined.label}</strong>. Waiting for {otherName} to suggest another spot.</>
+              : <>❌ You declined <strong>{declined.label}</strong>. Suggest a spot that works for you.</>}
+          </span>
+          {!mineWasDeclined && forGood}
+        </div>
       );
     }
     return iGive
@@ -167,6 +173,7 @@ function PickupStatus({ post, user, pickup, declined, onAcceptPickup, onDeclineP
       <span>📍 {otherName} suggests <strong>{pickup.label}</strong></span>
       {onAcceptPickup && <button className="btn primary small" onClick={() => onAcceptPickup(post)}>Accept</button>}
       {onDeclinePickup && <button className="btn ghost small" onClick={() => onDeclinePickup(post)}>Decline</button>}
+      {forGood}
       {live}
     </div>
   );

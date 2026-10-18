@@ -28,7 +28,7 @@ const REROUTE_METERS = 20; // walk this far from where the route started before 
 // Directions go from your live location (or `here`) to the pickup spot, or the giver's area if none is set yet.
 export default function MapPanel({
   here, homeLabel, device, posts, user, target, pickups = {}, picking,
-  onSelect, onClear, onChoosePickup, onAcceptPickup, onDeclinePickup, declinedPickups = {}, onPickSave, onPickCancel, liveShare,
+  onSelect, onClear, onChoosePickup, onAcceptPickup, onDeclinePickup, onDeclineForGood, declinedPickups = {}, onPickSave, onPickCancel, liveShare,
 }) {
   const boxRef = useRef(null);
   const mapRef = useRef(null);
@@ -569,6 +569,7 @@ export default function MapPanel({
                       <>
                         {onAcceptPickup && <button className="btn primary small map-accept" onClick={() => onAcceptPickup(target)}>Accept spot</button>}
                         {onDeclinePickup && <button className="btn ghost small map-accept" onClick={() => onDeclinePickup(target)}>Decline</button>}
+                        {onDeclineForGood && <button className="btn ghost small map-accept danger" onClick={() => onDeclineForGood(target)}>Decline for good</button>}
                       </>
                     )}
                 </>

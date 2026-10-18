@@ -20,8 +20,18 @@ service cloud.firestore {
         resource.data.ownerId == request.auth.uid ||
         // Anyone can claim an open post.
         (resource.data.status == "open" &&
+         !(request.auth.uid in resource.data.get("declinedBy", [])) &&
          request.resource.data.claimedById == request.auth.uid &&
          onlyChanges(["status", "claimedById", "claimedByName", "claimedByEmail", "claimerApproxLat", "claimerApproxLng"])) ||
+        // The claimer can back out for good: the post reopens and they're added to declinedBy.
+        (resource.data.claimedById == request.auth.uid &&
+         resource.data.status == "claimed" &&
+         onlyChanges(["status", "claimedById", "claimedByName", "claimedByEmail", "claimerApproxLat", "claimerApproxLng",
+                      "ownerConfirmed", "claimerConfirmed", "declinedBy"]) &&
+         request.resource.data.status == "open" &&
+         request.resource.data.claimedById == "" &&
+         request.resource.data.declinedBy.hasAll(resource.data.get("declinedBy", [])) &&
+         request.resource.data.declinedBy.hasAll([request.auth.uid])) ||
         // The claimer can save their (rounded) location, so a requester can walk to them.
         (resource.data.claimedById == request.auth.uid &&
          onlyChanges(["claimerApproxLat", "claimerApproxLng"])) ||

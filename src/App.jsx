@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useRef, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, syncCommunity, claimPost, clearHistory, clearedFromHistory, HISTORY_KEEP_DAYS, addLocationToPost, addClaimerLocation, setPickupSpot, setPostPickup, acceptPickupSpot, declinePickupSpot, pickupsFor, handoffRoles, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, syncCommunity, claimPost, clearHistory, clearedFromHistory, HISTORY_KEEP_DAYS, addLocationToPost, addClaimerLocation, setPickupSpot, setPostPickup, acceptPickupSpot, declinePickupSpot, declineHandoff, declinedHandoff, pickupsFor, handoffRoles, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -20,7 +20,7 @@ import { useLiveSharing } from "./useLiveSharing";
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [posts, setPosts] = useState([]);
+  const [allPosts, setPosts] = useState([]);
   const [tab, setTab] = useState("board"); // "board", "community", "mine", "history", "pantry", "recipes" or "messages"
   const [filter, setFilter] = useState("all"); // "all", "offer", "request"
   const [sort, setSort] = useState("newest"); // "newest" or "nearest"
@@ -35,6 +35,8 @@ export default function App() {
   const [mapTargetId, setMapTargetId] = useState(null); // post shown with directions on the map
   const [reviewPost, setReviewPost] = useState(null);
   const uid = user ? user.uid : null;
+  // Posts you were declined on for good are hidden from you everywhere.
+  const posts = allPosts.filter((p) => !(p.status === "open" && declinedHandoff(p, user)));
 
   // Start listening to sign-in state and posts when the page loads.
   useEffect(() => watchUser(setUser), []);
@@ -331,6 +333,22 @@ export default function App() {
       alert("Couldn't accept the pickup spot: " + err.message);
     }
   }
+  // "Decline for good": ends the hand-off. The post reopens for everyone else.
+  async function declineForGood(post) {
+    const iClaimed = post.claimedById === uid;
+    const other = iClaimed ? post.ownerName : post.claimedByName;
+    const ok = window.confirm(iClaimed
+      ? `Back out of ${post.item} for good? It goes back on the board for other neighbors, and you won't see it again.`
+      : `Decline ${other} for good? ${post.item} goes back on the board for other neighbors, and ${other} can't claim it again.`);
+    if (!ok) return;
+    try {
+      await declineHandoff(user, post);
+      if (mapTargetId === post.id) setMapTargetId(null);
+      if (pickRequest && pickRequest.key === post.id) setPickRequest(null);
+    } catch (err) {
+      alert("Couldn't decline: " + err.message);
+    }
+  }
   // Decline, then open the map right away so you can suggest a spot that works for you.
   async function declinePickup(post) {
     try {
@@ -354,13 +372,14 @@ export default function App() {
 
   const TABS = [
     // `tone` gives each section its own color (see the .tone-* classes in styles.css).
+    // Grouped by color: teal tabs first, then clay.
     { id: "board", label: "Board", icon: "🏠", tone: "basil", title: "Board", sub: "What your neighbors are offering and asking for." },
-    { id: "community", label: "Community", icon: "🏘️", tone: "berry", title: complete ? profile.housingLabel : "Community", sub: complete ? `Neighbors in ${profile.housingLabel}. Offer extras, or grab something without a trip to the store.` : "What your dorm or apartment is offering and looking for." },
     { id: "mine", label: "My posts", icon: "📝", tone: "sky", title: "My posts", sub: "Posts you made or claimed that aren't shared yet." },
     { id: "history", label: "History", icon: "🕘", tone: "basil", title: "History", sub: "Everything you've shared or received." },
+    { id: "messages", label: "Messages", icon: "💬", tone: "plum", title: "Messages", sub: "Plan pickups with your neighbors." },
+    { id: "community", label: "Community", icon: "🏘️", tone: "berry", title: complete ? profile.housingLabel : "Community", sub: complete ? `Neighbors in ${profile.housingLabel}. Offer extras, or grab something without a trip to the store.` : "What your dorm or apartment is offering and looking for." },
     { id: "pantry", label: "Pantry", icon: "🥫", tone: "saffron", title: "Pantry", sub: "What you have at home. Only you can see this." },
     { id: "recipes", label: "Recipes", icon: "🍳", tone: "tomato", title: "Recipes", sub: "Cook with what you have. Borrow the rest." },
-    { id: "messages", label: "Messages", icon: "💬", tone: "plum", title: "Messages", sub: "Plan pickups with your neighbors." },
   ];
   const page = TABS.find((t) => t.id === activeTab);
 
@@ -521,7 +540,7 @@ export default function App() {
             ) : (
               visible.map((p, i) => (
                 <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onClaim={claim} onReview={setReviewPost} onDirections={showDirections}
-                  pickup={pickups[p.id]} declinedPickup={declinedPickups[p.id]} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onDeclinePickup={declinePickup} liveShare={liveShare} index={i} focused={p.id === focusPostId} />
+                  pickup={pickups[p.id]} declinedPickup={declinedPickups[p.id]} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onDeclinePickup={declinePickup} onDeclineForGood={declineForGood} liveShare={liveShare} index={i} focused={p.id === focusPostId} />
               ))
             )}
           </main>
@@ -533,7 +552,7 @@ export default function App() {
       {/* ---------- Right column: map + directions ---------- */}
       {showApp && activeTab !== "community" && (
         <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} device={device} posts={posts} user={user} target={mapTarget}
-          pickups={pickups} picking={pickRequest} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onDeclinePickup={declinePickup}
+          pickups={pickups} picking={pickRequest} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onDeclinePickup={declinePickup} onDeclineForGood={declineForGood}
           declinedPickups={declinedPickups} liveShare={liveShare}
           onPickSave={savePick} onPickCancel={() => setPickRequest(null)}
           onSelect={(post) => setMapTargetId(post.id)} onClear={() => setMapTargetId(null)} />

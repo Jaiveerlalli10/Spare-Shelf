@@ -13,6 +13,7 @@
 //   approxLat, approxLng: the poster's housing rounded to ~200 m, for "0.3 mi away" (null if unknown),
 //   claimerApproxLat, claimerApproxLng: the claimer's housing, rounded the same way (set when claiming),
 //   ownerConfirmed, claimerConfirmed: true once each side confirms the hand-off,
+//   declinedBy: uids who were declined for good on this post; they can't see or claim it again,
 //   historyClearedBy: uids of the two people who cleared it from their History,
 //   deleteAt: Timestamp, set once both have cleared it. Firestore's TTL policy then
 //     deletes the post for good (see README),
@@ -28,7 +29,7 @@ import { NOTE_MAX, otherParty, reviewDocId, tagsFor } from "./reviews";
 import { communityId } from "./community";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction,
+  addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction,
   setDoc, Timestamp, updateDoc, where, writeBatch,
 } from "firebase/firestore";
 
@@ -739,6 +740,34 @@ export async function declinePickupSpot(user, post, pickup) {
     `❌ ${pickup.label} doesn't work for me for ${post.item}. Could you choose another pickup spot?`);
 }
 
+/** True if this person was declined for good on this post (as the claimer), so they don't see it again. */
+export function declinedHandoff(post, user) {
+  return Boolean(user && (post.declinedBy || []).includes(user.uid));
+}
+
+/**
+ * Either person ends the hand-off for good. The claim is undone and the post goes back on the
+ * board for other neighbors; the person who claimed it can't see or claim it again.
+ */
+export async function declineHandoff(user, post) {
+  const other = otherInPost(post, user);
+  const chatId = await ensureChat(post);
+  const changes = {
+    status: "open", claimedById: "", claimedByName: "", claimedByEmail: "",
+    claimerApproxLat: null, claimerApproxLng: null, ownerConfirmed: false, claimerConfirmed: false,
+    declinedBy: [...new Set([...(post.declinedBy || []), post.claimedById])],
+  };
+  if (!isDemoMode) {
+    await updateDoc(doc(db, "chats", chatId), { [`pickups.${post.id}`]: deleteField() });
+    await updateDoc(doc(db, "posts", post.id), changes);
+  } else {
+    demo.clearPickup(chatId, post.id);
+    demo.updatePost(post.id, changes);
+  }
+  await sendMessage(user, { id: chatId, members: [user.uid, other.id].sort() },
+    `🚫 ${user.name} declined the hand-off for ${post.item} for good.`);
+}
+
 /** { [postId]: pickup } from all of this user's chats. */
 export function pickupsFromChats(chats) {
   const all = {};
@@ -956,6 +985,14 @@ const demo = (() => {
       else delete live[`${chatId}/${uid}`];
       save("spareShelf.live", live);
       emit("live");
+    },
+    clearPickup(chatId, postId) {
+      updateChat(chatId, (c) => {
+        const pickups = { ...(c.pickups || {}) };
+        delete pickups[postId];
+        return { ...c, pickups };
+      });
+      saveChats();
     },
     setPickup(chatId, postId, value) {
       updateChat(chatId, (c) => ({ ...c, pickups: { ...(c.pickups || {}), [postId]: value } }));
