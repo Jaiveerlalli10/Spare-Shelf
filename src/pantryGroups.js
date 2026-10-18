@@ -92,9 +92,12 @@ function toGroup(entries) {
   let label = name;
   let qtyText = "";
 
+  let amount = null;
+  let unit = "";
   if (kind === "num") {
     const total = described.reduce((sum, d) => sum + d.amount, 0);
-    const unit = mostCommon(described.map((d) => d.unit).filter(Boolean));
+    unit = mostCommon(described.map((d) => d.unit).filter(Boolean));
+    amount = total;
     quantity = unit ? `${formatAmount(total)} ${unit}` : formatAmount(total);
     if (unit) {
       label = name;
@@ -116,6 +119,8 @@ function toGroup(entries) {
     items,
     name,
     quantity,
+    amount,
+    unit,
     expiresOn,
     label,
     qtyText,
@@ -141,6 +146,29 @@ export function groupPantryItems(items) {
     buckets.set(key, bucket);
   }
   return [...buckets.values()].map(toGroup);
+}
+
+/** A positive amount from "2", "1/2", or "2 cups" when the unit matches. */
+export function parseUsedAmount(value, { unit = "", name = "" } = {}) {
+  const raw = text(value).trim();
+  const match = raw.match(QTY);
+  if (!match) return null;
+  const amount = match[1] ? Number(match[1]) / Number(match[2]) : Number(match[3] ?? match[4]);
+  const rest = (match[5] || "").trim();
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (!rest) return amount;
+  const restKey = nameKey(rest);
+  if (unit && restKey === nameKey(unit)) return amount;
+  if (!unit && name && restKey === nameKey(name)) return amount;
+  return null;
+}
+
+/** Quantity string after using some of a counted pile. Empty when none is left. */
+export function quantityAfterUse(total, used, unit) {
+  const left = total - used;
+  if (!(left > 0.0005)) return "";
+  const n = formatAmount(left);
+  return unit ? `${n} ${unit}` : n;
 }
 
 /**

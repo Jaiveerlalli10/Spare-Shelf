@@ -507,6 +507,13 @@ export async function deletePost(post) {
   demo.removePost(post.id);
 }
 
+/** Updates the amount shown on a post, for when part of a pantry offer gets used. */
+export async function setPostQuantity(post, quantity) {
+  const changes = { quantity: (quantity || "").trim() };
+  if (!isDemoMode) return updateDoc(doc(db, "posts", post.id), changes);
+  demo.updatePost(post.id, changes);
+}
+
 // ---------- Pantry (private to each user) ----------
 //
 // Stored in Firestore at users/{uid}/pantry/{itemId}. A pantry item looks like:

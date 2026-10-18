@@ -2,11 +2,11 @@
 // Items you're offering on the board get their own highlighted section.
 // Everything else is sorted so items about to go bad come first, with a "Share" button to offer them.
 import { useEffect, useState } from "react";
-import { watchPantry, addPantryItem, removePantryItem, removePantryItems, mergePantryItems, deletePost } from "../data";
+import { watchPantry, addPantryItem, removePantryItems, mergePantryItems, deletePost, setPostQuantity } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import { activeOffersByPantryItem } from "../matching";
 import { foodEmoji } from "../foodEmoji";
-import { groupPantryItems, groupToJoin } from "../pantryGroups";
+import { groupPantryItems, groupToJoin, parseUsedAmount, quantityAfterUse, formatAmount } from "../pantryGroups";
 
 const EMPTY = { name: "", quantity: "", expiresOn: "" };
 const SOON_DAYS = 2; // "expiring soon" = within this many days
@@ -15,6 +15,7 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState("");
+  const [using, setUsing] = useState(null); // { group, offer } while the "how much did you use?" popup is open
 
   useEffect(() => watchPantry(user, setItems), [user.uid]);
 
@@ -44,13 +45,8 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
     }
   }
 
-  // "Used up" on an item that's on the board also takes the post down.
-  async function useUp(item, offer) {
-    if (offer) {
-      if (!window.confirm(`${item.name} is on the board. Remove the post too?`)) return;
-      await deletePost(offer);
-    }
-    await removePantryItem(user, item);
+  function askUse(group, offer = null) {
+    setUsing({ group, offer });
   }
 
   const onBoard = activeOffersByPantryItem(posts, user);
@@ -84,9 +80,18 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
     }
   }
 
-  async function useUpGroup(group) {
-    if (group.items.length > 1 && !window.confirm(`Used up all ${group.label}?`)) return;
-    await removePantryItems(user, group.items);
+  async function applyUse(group, offer, leftover) {
+    if (!leftover) {
+      if (offer) await deletePost(offer);
+      await removePantryItems(user, group.items);
+      return;
+    }
+    await mergePantryItems(user, group.id, {
+      name: group.name,
+      quantity: leftover,
+      expiresOn: group.expiresOn,
+    }, group.ids);
+    if (offer) await setPostQuantity(offer, leftover);
   }
 
   return (
@@ -139,7 +144,7 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
                     {offer.status === "claimed" && (
                       <button className="btn ghost" onClick={() => onMessage(offer)}>💬 Message</button>
                     )}
-                    <button className="btn ghost" onClick={() => useUp(item, offer)}>Used up</button>
+                    <button className="btn ghost" onClick={() => askUse(groupPantryItems([item])[0] || itemGroup(item), offer)}>Used up</button>
                   </div>
                 </li>
               );
@@ -165,7 +170,7 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
                   </div>
                   <div className="pantry-actions">
                     <button className="btn ghost" onClick={() => share(group)}>Share</button>
-                    <button className="btn ghost" onClick={() => useUpGroup(group)}>Used up</button>
+                    <button className="btn ghost" onClick={() => askUse(group)}>Used up</button>
                   </div>
                 </li>
               );
@@ -174,6 +179,122 @@ export default function Pantry({ user, posts, onShare, onMessage }) {
         </>
       )}
       <p className="muted pantry-note">Only you can see your pantry. Items on the board leave it when you mark the hand-off completed.</p>
+      {using && (
+        <UseUpDialog
+          group={using.group}
+          offer={using.offer}
+          onClose={() => setUsing(null)}
+          onApply={(leftover) => applyUse(using.group, using.offer, leftover)}
+        />
+      )}
     </section>
+  );
+}
+
+function itemGroup(item) {
+  return {
+    id: item.id,
+    ids: [item.id],
+    items: [item],
+    name: item.name,
+    quantity: item.quantity || "",
+    amount: null,
+    unit: "",
+    expiresOn: item.expiresOn || "",
+    label: item.name,
+    qtyText: item.quantity || "",
+  };
+}
+
+function haveLabel(group) {
+  if (group.qtyText) return `${group.label} · ${group.qtyText}`;
+  return group.label;
+}
+
+/** Asks how much was used so a partial amount can stay in the pantry. */
+function UseUpDialog({ group, offer, onClose, onApply }) {
+  const counted = typeof group.amount === "number";
+  const [used, setUsed] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const unitLabel = group.unit || (counted ? group.name : "");
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function run(leftover) {
+    setBusy(true);
+    setError("");
+    try {
+      await onApply(leftover);
+      onClose();
+    } catch (err) {
+      setError("Couldn't update that: " + err.message);
+      setBusy(false);
+    }
+  }
+
+  async function save(e) {
+    e.preventDefault();
+    if (!counted) {
+      const left = used.trim();
+      if (!left) {
+        setError("Type what's left, or choose Used all of it.");
+        return;
+      }
+      await run(left);
+      return;
+    }
+    const amount = parseUsedAmount(used, { unit: group.unit, name: group.name });
+    if (amount == null) {
+      setError("Enter how much you used, like 2.");
+      return;
+    }
+    if (amount > group.amount + 0.0005) {
+      const have = group.unit ? `${formatAmount(group.amount)} ${group.unit}` : formatAmount(group.amount);
+      setError(`You only have ${have}.`);
+      return;
+    }
+    await run(quantityAfterUse(group.amount, amount, group.unit));
+  }
+
+  return (
+    <div className="review-backdrop" onClick={onClose}>
+      <form className="card use-sheet" role="dialog" aria-modal="true" aria-labelledby="use-up-title" onClick={(e) => e.stopPropagation()} onSubmit={save}>
+        <h2 id="use-up-title">How much did you use?</h2>
+        <p className="muted">You have {haveLabel(group)}. The rest stays in your pantry.</p>
+        {offer && (
+          <p className="muted">
+            {offer.status === "claimed"
+              ? "Someone is picking this up. Using all of it takes the post down. Using some updates the amount on the post."
+              : "This is on the board. Using all of it takes the post down. Using some updates the amount on the post."}
+          </p>
+        )}
+        <label>
+          {counted ? "Amount used" : "What's left"}
+          <span className="use-amount">
+            <input
+              autoFocus
+              inputMode="decimal"
+              value={used}
+              placeholder={counted ? "e.g. 2" : group.quantity || "What's still left"}
+              aria-label={counted ? "Amount used" : "What's left"}
+              onChange={(e) => setUsed(e.target.value)}
+            />
+            {unitLabel && <span>{unitLabel}</span>}
+          </span>
+        </label>
+        {!counted && <p className="hint">This amount isn't a count, so type what's still left, or mark it all used.</p>}
+        {error && <p className="error">{error}</p>}
+        <div className="use-actions">
+          <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="btn ghost" onClick={() => run("")} disabled={busy}>Used all of it</button>
+          <button type="submit" className="btn primary" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+        </div>
+      </form>
+    </div>
   );
 }
