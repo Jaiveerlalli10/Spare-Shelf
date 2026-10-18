@@ -84,4 +84,11 @@ Open the link it prints (usually http://localhost:5173). Without Firebase keys t
 
 ## Deploy (Vercel)
 
-Push to GitHub → import the repo at https://vercel.com → add the same `VITE_FIREBASE_*` variables under Environment Variables → Deploy. Then in Firebase, go to **Authentication → Settings → Authorized domains** and add your `*.vercel.app` domain.
+1. Push to GitHub → import the repo at https://vercel.com.
+2. Under **Environment Variables**, add everything from your `.env.local`: the six `VITE_FIREBASE_*` values **and** `VITE_RECAPTCHA_SITE_KEY`. Without the reCAPTCHA key, App Check never starts and Firebase rejects the live site's requests. Then **Deploy**.
+3. Firebase console → **Authentication → Settings → Authorized domains**: add your `*.vercel.app` domain (otherwise Google sign-in fails).
+4. Firebase console → **Firestore → Rules**: paste in `firestore.rules` from this repo and **Publish**.
+5. Google Cloud console → **Security → reCAPTCHA** → your key → **Key details**: add your `*.vercel.app` domain and `localhost`.
+6. Do one full run on the live site: sign in, post an offer, claim it from a second account, agree on a pickup spot, confirm.
+
+Each teammate testing on localhost also needs their own App Check debug token: it's printed in the browser console the first time, and gets added under Firebase console → **App Check → Apps → ⋮ → Manage debug tokens**.
