@@ -539,7 +539,7 @@ export default function App() {
         ) : activeTab === "pantry" ? (
           <Pantry user={user} posts={posts} onShare={shareFromPantry} onMessage={openChat} />
         ) : activeTab === "recipes" ? (
-          <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} onClaim={claim} />
+          <Recipes user={user} profile={profile} onEditProfile={() => { setEditing(true); window.scrollTo({ top: 0 }); }} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} onClaim={claim} />
         ) : activeTab === "messages" ? (
           <Messages user={user} chats={chats} openWith={openChatWith}
             onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} />

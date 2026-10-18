@@ -129,6 +129,7 @@ export async function saveProfile(user, fields) {
     email: user.email || "",
     photoURL: fields.photoURL || "",
     bio: (fields.bio || "").trim(),
+    taste: fields.taste || null, // food preferences for recipe ideas (see taste.js)
     universityName: fields.university.name,
     universityCity: fields.university.city,
     universityState: fields.university.state,

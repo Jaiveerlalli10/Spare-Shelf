@@ -3,6 +3,7 @@
 // In demo mode there's no Firebase, so `aiReady` is false and the AI buttons are hidden.
 import { getAI, getGenerativeModel, GoogleAIBackend, Schema } from "firebase/ai";
 import { app } from "./firebase";
+import { tasteForPrompt } from "./taste";
 
 // Tried in order: if one is busy or out of free quota (5 requests a minute each), the next one is used.
 // "-latest" names follow Google's newest Flash models, so they don't get retired out from under us.
@@ -63,13 +64,15 @@ const recipeSchema = Schema.object({
 });
 
 /**
- * Recipe ideas that use what's in `pantry` ([{ name, quantity, expiresOn }]).
+ * Recipe ideas that use what's in `pantry` ([{ name, quantity, expiresOn }]),
+ * personalized with the person's taste profile (`taste`, optional; see taste.js).
  * Returns recipes in the same shape as RECIPES in recipes.js, so RecipeDetail can show them.
  */
-export async function suggestRecipes(pantry) {
+export async function suggestRecipes(pantry, taste) {
   const list = pantry
     .map((i) => `- ${i.name}${i.quantity ? ` (${i.quantity})` : ""}${i.expiresOn ? `, best by ${i.expiresOn}` : ""}`)
     .join("\n");
+  const tastes = tasteForPrompt(taste);
   const prompt = `You help college students cook with what they have. Today is ${new Date().toISOString().slice(0, 10)}.
 Their pantry:
 ${list}
@@ -78,7 +81,10 @@ Suggest 3 simple, realistic recipes a student could make in a dorm or apartment 
 Use as many pantry items as you can, and favor ones that expire soon. It's fine to need 1 to 3 extra ingredients.
 Keep ingredient names short and plain, matching the pantry names when it's the same thing.
 Don't list basics (salt, pepper, oil, water) as ingredients; put them in staples instead.
-Keep steps short: 3 to 5 steps.`;
+Keep steps short: 3 to 5 steps.${tastes ? `
+
+Personalize the recipes for this person. Diet and allergy rules are strict; the rest are preferences:
+${tastes}` : ""}`;
 
   const { recipes = [] } = await askForJson(recipeSchema, prompt);
   return recipes.map((r, i) => ({

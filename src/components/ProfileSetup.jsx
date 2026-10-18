@@ -4,6 +4,8 @@ import { nearbyDorms, suggestNearby, searchHousing, mergePlaces, isUwSeattle, UW
 import { milesBetween } from "../location";
 import { UNIVERSITIES, searchUniversities } from "../universities";
 import PhotoField from "./PhotoField";
+import TasteFields from "./TasteFields";
+import { normalizeTaste } from "../taste";
 
 export default function ProfileSetup({ user, profile, required, onSaved }) {
   const savedUni = profile && profile.universityName ? {
@@ -29,6 +31,7 @@ export default function ProfileSetup({ user, profile, required, onSaved }) {
     lng: profile.housingLng,
   } : null);
   const [bio, setBio] = useState(profile?.bio || "");
+  const [taste, setTaste] = useState(normalizeTaste(profile?.taste));
   const [photoURL, setPhotoURL] = useState(profile?.photoURL || user.photoURL || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -142,6 +145,7 @@ export default function ProfileSetup({ user, profile, required, onSaved }) {
         housing: place,
         bio,
         photoURL,
+        taste: normalizeTaste(taste),
         createdAt: profile?.createdAt,
       });
       if (onSaved) onSaved();
@@ -158,7 +162,7 @@ export default function ProfileSetup({ user, profile, required, onSaved }) {
       <p className="auth-lead">
         {required
           ? "Before you can use Spare Shelf, add your university and where you live near campus."
-          : "Update your campus, housing, photo, or bio."}
+          : "Update your campus, housing, photo, bio, or taste profile."}
       </p>
 
       <label>University
@@ -261,6 +265,8 @@ export default function ProfileSetup({ user, profile, required, onSaved }) {
           placeholder="I bake on Sundays and always have extra flour."
         />
       </label>
+
+      <TasteFields taste={taste} onChange={setTaste} firstTime={required} />
 
       {error && <p className="error" role="alert">{error}</p>}
       <button className="btn primary" type="submit" disabled={saving}>

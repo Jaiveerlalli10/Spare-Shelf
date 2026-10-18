@@ -7,8 +7,9 @@ import { findInPantry, activeOffersByPantryItem } from "../matching";
 import { groupPantryItems } from "../pantryGroups";
 import RecipeDetail from "./RecipeDetail";
 import { aiReady, suggestRecipes } from "../ai";
+import { hasTaste, tasteSummary } from "../taste";
 
-export default function Recipes({ user, posts, here, onRequest, onMessage, onClaim }) {
+export default function Recipes({ user, profile, posts, here, onRequest, onMessage, onClaim, onEditProfile }) {
   const [pantry, setPantry] = useState([]);
   const [selectedTags, setSelectedTags] = useState([]);
   const [search, setSearch] = useState("");
@@ -41,7 +42,7 @@ export default function Recipes({ user, posts, here, onRequest, onMessage, onCla
     setThinking(true);
     setIdeasError("");
     try {
-      setIdeas(await suggestRecipes(available));
+      setIdeas(await suggestRecipes(available, profile?.taste));
     } catch (err) {
       setIdeasError("Couldn't get ideas: " + err.message);
     } finally {
@@ -78,14 +79,21 @@ export default function Recipes({ user, posts, here, onRequest, onMessage, onCla
       {aiReady && (
         <div className="ai-ideas">
           <div className="ai-ideas-head">
-            <h3>✨ Ideas from your pantry</h3>
+            <h3>✨ {hasTaste(profile?.taste) ? "Ideas for you" : "Ideas from your pantry"}</h3>
             <button className="btn primary small" onClick={getIdeas} disabled={thinking || available.length === 0}>
               {thinking ? "Thinking…" : ideas.length ? "New ideas" : "Suggest recipes"}
             </button>
           </div>
+          <p className="muted taste-note">
+            {hasTaste(profile?.taste)
+              ? <>Based on your pantry and taste profile: {tasteSummary(profile.taste)}.</>
+              : <>Add a taste profile (diet, allergies, favorite cuisines) to get ideas made for you.</>}
+            {onEditProfile && <> <button className="link" onClick={onEditProfile}>{hasTaste(profile?.taste) ? "Edit" : "Add one"}</button></>}
+          </p>
           {ideasError && <p className="error">{ideasError}</p>}
           {available.length === 0 && <p className="muted">Add a few things to your Pantry tab first.</p>}
           {ideas.length > 0 && <div className="recipe-grid">{ideas.map((r) => card(withHave(r)))}</div>}
+          {ideas.length > 0 && <p className="muted taste-note">AI ideas can make mistakes. Always double-check ingredients for allergens.</p>}
         </div>
       )}
       <div className="filters">
