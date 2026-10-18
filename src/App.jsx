@@ -37,8 +37,8 @@ export default function App() {
   const [mapTargetId, setMapTargetId] = useState(null); // post shown with directions on the map
   const [reviewPost, setReviewPost] = useState(null);
   const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem("spareShelf.theme") === "light" ? "light" : "dark"; }
-    catch { return "dark"; }
+    try { return localStorage.getItem("spareShelf.theme") === "dark" ? "dark" : "light"; }
+    catch { return "light"; }
   });
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
