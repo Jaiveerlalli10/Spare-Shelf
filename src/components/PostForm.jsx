@@ -114,7 +114,7 @@ export default function PostForm({ user, posts, origin, homeLabel, onDone, initi
         <button type="button" className={form.type === "offer" ? "chip active" : "chip"}
           onClick={() => setForm({ ...form, type: "offer" })}>I have extra</button>
       </div>
-      {aiReady && (
+      {aiReady && form.type === "offer" && (
         <div className="ai-photo">
           <label className={`file-btn btn ghost${reading ? " disabled" : ""}`}>
             {reading ? "Reading photo…" : "📷 Fill in from a photo"}
