@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useRef, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, setPickupSpot, acceptPickupSpot, pickupsFromChats, handoffRoles, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, setPickupSpot, setPostPickup, acceptPickupSpot, pickupsFor, handoffRoles, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -170,24 +170,43 @@ export default function App() {
   // Your device location (the browser asks once the app is ready), used as the start of directions.
   const device = useDeviceLocation(Boolean(complete));
 
-  // Pickup spots live in your chats: { [postId]: { lat, lng, label, accepted, ... } }.
-  const pickups = pickupsFromChats(chats);
-  const [pickingId, setPickingId] = useState(null); // post the giver is choosing a pickup spot for
-  const picking = posts.find((p) => p.id === pickingId) || null;
+  // Pickup spot in effect for each post: { [postId]: { lat, lng, label, accepted, ... } }.
+  // Set in your chat after a claim (private), or listed on the offer when it was posted.
+  const pickups = pickupsFor(posts, chats);
 
-  // "📍 Choose pickup spot": put the map in picking mode (and bring it into view on small screens).
-  function choosePickup(post) {
+  // Picking mode on the map: { key, title, subtitle, initial, save(spot) }.
+  const [pickRequest, setPickRequest] = useState(null);
+  function startPicking(request) {
     setMapTargetId(null);
-    setPickingId(post.id);
+    setPickRequest(request);
     if (window.innerWidth <= 1200) {
       const el = document.getElementById("map-panel");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
-  async function savePickup(post, spot) {
-    await setPickupSpot(user, post, spot);
-    setPickingId(null);
-    setMapTargetId(post.id); // show the spot you just chose
+  // "📍 Choose pickup spot" on a post: on an unclaimed offer it's saved on the post (public);
+  // once claimed it's saved in your chat and the receiver accepts it.
+  function choosePickup(post) {
+    const claimed = post.status === "claimed";
+    const other = post.ownerId === uid ? post.claimedByName : post.ownerName;
+    startPicking({
+      key: post.id,
+      subtitle: claimed ? `for ${post.item} with ${other}` : `for your ${post.item} offer`,
+      initial: pickups[post.id] || null,
+      save: async (spot) => {
+        if (claimed) await setPickupSpot(user, post, spot);
+        else await setPostPickup(post, spot);
+        setMapTargetId(post.id); // show the spot you just chose
+      },
+    });
+  }
+  // From the new-post form, before the offer exists.
+  function pickForDraft(current, item, onPicked) {
+    startPicking({ key: "draft", subtitle: `for ${item || "your offer"}`, initial: current, save: async (spot) => onPicked(spot) });
+  }
+  async function savePick(request, spot) {
+    await request.save(spot);
+    setPickRequest(null);
   }
   // ---------- The giver's live location ----------
   // While you're GIVING something and a pickup spot is set, the receiver sees your live location
@@ -350,7 +369,7 @@ export default function App() {
 
         {showForm && user && onPostsTab && (
           <PostForm key={draft ? draft.key : "new"} user={user} posts={posts} origin={here}
-            homeLabel={complete ? publicPlaceLabel(profile) : ""} initial={draft} onDone={closeForm} />
+            homeLabel={complete ? publicPlaceLabel(profile) : ""} initial={draft} onDone={closeForm} onPickDraft={pickForDraft} />
         )}
 
         {activeTab === "pantry" ? (
@@ -358,9 +377,8 @@ export default function App() {
         ) : activeTab === "recipes" ? (
           <Recipes user={user} posts={posts} here={here} onRequest={requestIngredient} onMessage={openChat} />
         ) : activeTab === "messages" ? (
-          <Messages user={user} chats={chats} posts={posts} openWith={openChatWith}
-            onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} onDirections={showDirections}
-            onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onReview={setReviewPost} liveShare={liveShare} />
+          <Messages user={user} chats={chats} openWith={openChatWith}
+            onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} />
         ) : (
         <>
           <div className="filters">
@@ -391,7 +409,7 @@ export default function App() {
             ) : (
               visible.map((p, i) => (
                 <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onReview={setReviewPost} onDirections={showDirections}
-                  pickup={pickups[p.id]} onChoosePickup={choosePickup} index={i} />
+                  pickup={pickups[p.id]} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} liveShare={liveShare} index={i} />
               ))
             )}
           </main>
@@ -403,8 +421,8 @@ export default function App() {
       {/* ---------- Right column: map + directions ---------- */}
       {showApp && (
         <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} device={device} posts={posts} user={user} target={mapTarget}
-          pickups={pickups} picking={picking} onChoosePickup={choosePickup} liveShare={liveShare}
-          onPickSave={savePickup} onPickCancel={() => setPickingId(null)}
+          pickups={pickups} picking={pickRequest} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} liveShare={liveShare}
+          onPickSave={savePick} onPickCancel={() => setPickRequest(null)}
           onSelect={(post) => setMapTargetId(post.id)} onClear={() => setMapTargetId(null)} />
       )}
 

@@ -3,13 +3,14 @@ import { useEffect, useState } from "react";
 import { createPost, watchPantry } from "../data";
 import { activeOffersByPantryItem } from "../matching";
 
-const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn: "", estValue: "", notes: "", pantryItemId: "" };
+const EMPTY = { type: "request", item: "", quantity: "", location: "", expiresOn: "", estValue: "", notes: "", pantryItemId: "", pickup: null };
 
 // `initial` (optional) pre-fills the form, e.g. when sharing an item from the pantry.
 // `posts` is used to hide pantry entries that are already on the board.
 // `origin` is the poster's housing location from their profile (a rounded version is saved for distances).
 // `homeLabel` is the place name from their profile (like "Alder Hall"), used as the post's location.
-export default function PostForm({ user, posts, origin, homeLabel, onDone, initial }) {
+// `onPickDraft(current, item, onPicked)` opens the map so an offer's pickup spot can be chosen by pin.
+export default function PostForm({ user, posts, origin, homeLabel, onDone, initial, onPickDraft }) {
   const [form, setForm] = useState({ ...EMPTY, ...initial });
   const [pantry, setPantry] = useState([]);
 
@@ -90,7 +91,23 @@ export default function PostForm({ user, posts, origin, homeLabel, onDone, initi
         <textarea name="notes" rows="2" value={form.notes} onChange={update} />
       </label>
 
-      <p className="muted form-place">📍 Posting from <strong>{homeLabel || "near campus"}</strong> (from your profile)</p>
+      {form.type === "offer" && onPickDraft ? (
+        <div className="form-pickup">
+          <span>
+            📍 Pickup spot: <strong>{form.pickup ? form.pickup.label : homeLabel || "near campus"}</strong>
+            {!form.pickup && <span className="muted"> (your profile, by default)</span>}
+          </span>
+          <span className="form-pickup-actions">
+            <button type="button" className="btn ghost small"
+              onClick={() => onPickDraft(form.pickup, form.item, (spot) => setForm((f) => ({ ...f, pickup: spot })))}>
+              {form.pickup ? "Change" : "Choose on map"}
+            </button>
+            {form.pickup && <button type="button" className="link" onClick={() => setForm((f) => ({ ...f, pickup: null }))}>Remove</button>}
+          </span>
+        </div>
+      ) : (
+        <p className="muted form-place">📍 Posting from <strong>{homeLabel || "near campus"}</strong> (from your profile)</p>
+      )}
 
       {error && <p className="error">{error}</p>}
       <button className="btn primary" disabled={saving}>{saving ? "Posting…" : "Post"}</button>

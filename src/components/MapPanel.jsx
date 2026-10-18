@@ -8,7 +8,7 @@ import { walkingRoute, stepText, formatWalkDistance } from "../directions";
 import { noTripReason, tripFor } from "../location";
 import { handoffRoles, pairId, watchLiveLocation, LIVE_FRESH_MS } from "../data";
 import { searchPlaces, reverseGeocode } from "../geocode";
-import { LiveNote } from "./ChatView";
+import LiveNote from "./LiveNote";
 
 const CAMPUS = [47.6553, -122.3035]; // fallback center: UW Seattle
 // Standard OpenStreetMap tiles (free, no key). They're darkened with a CSS filter (.leaflet-tile-pane in styles.css).
@@ -24,11 +24,11 @@ const REROUTE_METERS = 50; // walk this far from where the route started before 
 
 // `here`: your housing { lat, lng } from your profile (or null), with `homeLabel` its name.
 // `device`: your live device location (from useDeviceLocation in App). `target`: the selected post (or null).
-// `pickups`: { [postId]: pickup spot } from your chats. `picking`: the post you're choosing a spot for (or null).
+// `pickups`: { [postId]: pickup spot in effect }. `picking`: { key, subtitle, initial } while choosing a spot (or null).
 // Directions go from your live location (or `here`) to the pickup spot, or the giver's area if none is set yet.
 export default function MapPanel({
   here, homeLabel, device, posts, user, target, pickups = {}, picking,
-  onSelect, onClear, onChoosePickup, onPickSave, onPickCancel, liveShare,
+  onSelect, onClear, onChoosePickup, onAcceptPickup, onPickSave, onPickCancel, liveShare,
 }) {
   const boxRef = useRef(null);
   const mapRef = useRef(null);
@@ -141,7 +141,11 @@ export default function MapPanel({
   // Where you're walking: the pickup spot (agreed or suggested), or the giver's area if none yet.
   const targetPickup = target ? pickups[target.id] : null;
   const goal = target ? tripFor(target, user, targetPickup) : null;
-  const iGive = target && target.status === "claimed" && user && handoffRoles(target).giverId === user.uid;
+  // You're the giver: of a claimed hand-off, or of your own offer nobody has claimed yet.
+  const openOffer = target && target.status === "open" && target.type === "offer";
+  const iGive = Boolean(target && user && (target.status === "claimed"
+    ? handoffRoles(target).giverId === user.uid
+    : openOffer && target.ownerId === user.uid));
   const otherName = target && user ? (target.ownerId === user.uid ? target.claimedByName : target.ownerName) : "";
 
   // Where the route ends; like routeFrom, only moves after REROUTE_METERS so it doesn't jitter.
@@ -237,7 +241,7 @@ export default function MapPanel({
     const map = mapRef.current;
     if (!map || !picking) return;
     // Start with the pin on the current spot, or on you, so it's ready to drag.
-    const existing = pickups[picking.id];
+    const existing = picking.initial;
     const start = existing
       ? { lat: existing.lat, lng: existing.lng }
       : device.pos ? { lat: device.pos.lat, lng: device.pos.lng }
@@ -258,7 +262,7 @@ export default function MapPanel({
       setSpotLabel("");
       knownLabel.current = null;
     };
-  }, [picking?.id]);
+  }, [picking?.key]);
 
   // The draggable pin.
   useEffect(() => {
@@ -272,7 +276,7 @@ export default function MapPanel({
       setCandidate({ lat: ll.lat, lng: ll.lng });
     });
     candidateRef.current = marker.addTo(map);
-  }, [picking?.id, candidate?.lat, candidate?.lng]);
+  }, [picking?.key, candidate?.lat, candidate?.lng]);
 
   // Look up the address wherever the pin lands.
   useEffect(() => {
@@ -291,7 +295,7 @@ export default function MapPanel({
         .catch((err) => { if (err.name !== "AbortError") { setSpotLabel(""); setLabelState("done"); } });
     }, 350);
     return () => { clearTimeout(timer); ctrl.abort(); };
-  }, [picking?.id, candidate?.lat, candidate?.lng]);
+  }, [picking?.key, candidate?.lat, candidate?.lng]);
 
   // Address search: picking a result moves the pin there.
   useEffect(() => {
@@ -304,7 +308,7 @@ export default function MapPanel({
         .catch((err) => { if (err.name !== "AbortError") setResults([]); });
     }, 300);
     return () => { clearTimeout(timer); ctrl.abort(); };
-  }, [picking?.id, search]);
+  }, [picking?.key, search]);
 
   function pickResult(r) {
     knownLabel.current = { lat: r.lat, lng: r.lng, label: r.label };
@@ -417,7 +421,7 @@ export default function MapPanel({
             <span className="map-card-emoji" aria-hidden>📍</span>
             <div className="map-card-title">
               <strong>Choose the pickup spot</strong>
-              <span className="muted">for {picking.item} with {picking.ownerId === user?.uid ? picking.claimedByName : picking.ownerName}</span>
+              <span className="muted">{picking.subtitle}</span>
             </div>
             <button className="map-close" onClick={onPickCancel} aria-label="Cancel">×</button>
           </div>
@@ -481,10 +485,10 @@ export default function MapPanel({
               {targetPickup ? (
                 <span>
                   📍 Pickup spot: <strong>{targetPickup.label}</strong>
-                  {targetPickup.accepted ? ` · ✅ ${otherName} accepted` : ` · waiting for ${otherName} to accept`}
+                  {openOffer ? " · shown on your post" : targetPickup.accepted ? ` · ✅ ${otherName} accepted` : ` · waiting for ${otherName} to accept`}
                 </span>
               ) : (
-                <span>Choose where {otherName} should pick it up.</span>
+                <span>Choose where {openOffer ? "neighbors" : otherName} should pick it up.</span>
               )}
               {onChoosePickup && (
                 <button className="btn small ghost" onClick={() => onChoosePickup(target)}>
@@ -494,8 +498,8 @@ export default function MapPanel({
             </div>
           )}
           {!goal && !iGive && <p className="muted">{noTripReason(target, user)}</p>}
-          {iGive && <p className="muted">You're giving this, so {otherName} comes to the pickup spot.</p>}
-          {iGive && targetPickup && (
+          {iGive && <p className="muted">You're giving this, so {openOffer ? "whoever takes it" : otherName} comes to the pickup spot.</p>}
+          {iGive && targetPickup && roles && (
             <p className="map-from"><LiveNote liveShare={liveShare} otherId={roles.receiverId} otherName={otherName} /></p>
           )}
           {goal && !origin && <p className="muted">Allow location access, or finish your profile, to get directions.</p>}
@@ -509,8 +513,14 @@ export default function MapPanel({
           {goal && origin && (
             <p className="map-from">
               {goal.kind === "agreed" && <>✅ To the agreed pickup spot: <strong>{goal.label}</strong></>}
+              {goal.kind === "listed" && <>📍 To the pickup spot: <strong>{goal.label}</strong></>}
               {goal.kind === "proposed" && (
-                <>📍 To the suggested pickup spot: <strong>{goal.label}</strong><span className="muted"> · Accept it in your chat with {goal.name}.</span></>
+                <>
+                  📍 To the suggested pickup spot: <strong>{goal.label}</strong>
+                  {onAcceptPickup && (
+                    <button className="btn primary small map-accept" onClick={() => onAcceptPickup(target)}>Accept spot</button>
+                  )}
+                </>
               )}
               {goal.kind === "area" && (
                 <>🏠 To {goal.name}'s area<span className="muted"> · {target.status === "claimed" ? `${goal.name} hasn't chosen a pickup spot yet.` : "Claim it, and they'll choose a pickup spot."}</span></>

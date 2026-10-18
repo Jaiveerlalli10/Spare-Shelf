@@ -1,26 +1,19 @@
-// One conversation with one neighbor, Instagram-DM style: header, a hand-off strip per item
-// you're trading, grouped bubbles, "Seen", composer.
+// One conversation with one neighbor, Instagram-DM style: a header (back, photo, name, rating),
+// a profile intro at the top of the thread, the grouped bubbles with "Seen", and the composer.
+// Hand-off actions (confirming, pickup spots, reviews, directions) live on the post cards and the map.
 //
 // `chats` is every chat doc with this person: the shared pair chat plus any older per-post chats.
 // Their messages are merged into one thread; new messages always go to the pair chat.
-// `posts` is the claimed posts between you two (from postsBetween in Messages.jsx).
 import { useEffect, useRef, useState } from "react";
-import {
-  watchMessages, sendMessage, markChatRead, isUnread, handoffRoles, isFirestoreStuck, pairId, ensurePairChat,
-} from "../data";
+import { watchMessages, sendMessage, markChatRead, isUnread, isFirestoreStuck, pairId, ensurePairChat } from "../data";
 import { chatStamp } from "../dates";
-import { foodEmoji } from "../foodEmoji";
 import Avatar from "./Avatar";
-import Handoff from "./Handoff";
 import Reputation from "./Reputation";
-import { tripFor } from "../location";
 
 const GAP = 15 * 60 * 1000; // messages more than 15 minutes apart get a timestamp and a new group
 const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
 
-// `onChoosePickup(post)`: giver picks/changes the pickup spot; `onAcceptPickup(post)`: receiver accepts it.
-// `onReview(post)`: opens the review sheet after a hand-off.
-export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections, onChoosePickup, onAcceptPickup, onReview, liveShare }) {
+export default function ChatView({ user, other, chats, photoURL, onBack }) {
   const [byChat, setByChat] = useState({}); // chat id -> its messages
   const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
@@ -81,77 +74,6 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
   const theirRead = Math.max(0, ...chats.map((c) => (c.lastRead || {})[other.id] || 0));
   const seen = lastMine >= 0 && lastMine === list.length - 1 && theirRead >= list[lastMine].createdAt;
 
-  // A hand-off strip for each item you're still trading. If none are active, celebrate the latest one.
-  const active = posts.filter((p) => p.status === "claimed");
-  const done = posts.find((p) => p.status === "completed");
-  const stripPosts = active.length ? active : done ? [done] : [];
-  const pickups = primary.pickups || {};
-  const strips = stripPosts.map((post) => {
-    const { giverId, giverName, receiverName } = handoffRoles(post);
-    if (post.status === "completed") {
-      return (
-        <div key={post.id} className="dm-strip done">
-          <div className="dm-strip-row">
-            <span>🎉 Hand-off complete! {post.item} was added to {receiverName}'s pantry.</span>
-            <span className="dm-strip-actions"><Handoff post={post} user={user} onReview={onReview} /></span>
-          </div>
-        </div>
-      );
-    }
-    const pickup = pickups[post.id];
-    const iGive = giverId === user.uid;
-    return (
-      <div key={post.id} className="dm-strip">
-        <div className="dm-strip-row">
-          <span>
-            {foodEmoji(post.item)} <strong>{giverName}</strong> → <strong>{receiverName}</strong> · {post.item}
-            {post.quantity && ` (${post.quantity})`}
-          </span>
-          <span className="dm-strip-actions">
-            {/* Directions are for the person receiving the food. */}
-            {onDirections && tripFor(post, user, pickup) && (
-              <button className="dm-directions" onClick={() => onDirections(post)} title="Walking directions" aria-label={`Walking directions for ${post.item}`}>🧭</button>
-            )}
-            <Handoff post={post} user={user} onReview={onReview} />
-          </span>
-        </div>
-
-        {/* Pickup spot: the giver chooses (and can change) it, the receiver accepts it. */}
-        <div className={pickup && pickup.accepted ? "dm-pickup agreed" : "dm-pickup"}>
-          {iGive ? (
-            pickup ? (
-              <>
-                <span>📍 <strong>{pickup.label}</strong>{pickup.accepted ? ` · ✅ ${receiverName} accepted` : ` · waiting for ${receiverName} to accept`}</span>
-                {onChoosePickup && <button className="btn ghost small" onClick={() => onChoosePickup(post)}>Change</button>}
-                <LiveNote liveShare={liveShare} otherId={other.id} otherName={receiverName} />
-              </>
-            ) : (
-              <>
-                <span>Where should {receiverName} pick it up?</span>
-                {onChoosePickup && <button className="btn primary small" onClick={() => onChoosePickup(post)}>📍 Choose pickup spot</button>}
-              </>
-            )
-          ) : pickup ? (
-            pickup.accepted ? (
-              <span>✅ Pickup at <strong>{pickup.label}</strong></span>
-            ) : (
-              <>
-                <span>📍 {giverName} suggests <strong>{pickup.label}</strong></span>
-                <span className="dm-strip-actions">
-                  {onDirections && <button className="btn ghost small" onClick={() => onDirections(post)}>View</button>}
-                  {onAcceptPickup && <button className="btn primary small" onClick={() => onAcceptPickup(post)}>Accept</button>}
-                </span>
-              </>
-            )
-          ) : (
-            <span className="muted">Waiting for {giverName} to choose a pickup spot.</span>
-          )}
-        </div>
-      </div>
-    );
-  });
-  const topic = active.length ? active.map((p) => p.item).join(", ") : (posts[0] && posts[0].item) || primary.item || "";
-
   return (
     <section className="card dm-chat">
       <header className="dm-header">
@@ -162,11 +84,8 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
         <div className="dm-header-text">
           <strong>{other.name}</strong>
           <Reputation uid={other.id} />
-          {topic && <span className="muted">{foodEmoji(topic.split(", ")[0])} about {topic}</span>}
         </div>
       </header>
-
-      {strips.length > 0 && <div className="dm-strips">{strips}</div>}
 
       <div className="dm-thread" ref={threadRef}>
         {/* Profile intro at the top of the thread, like Instagram */}
@@ -174,8 +93,7 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
           <Avatar name={other.name} photoURL={photoURL} size={88} />
           <strong>{other.name}</strong>
           <Reputation uid={other.id} showNote />
-          <span className="muted">Spare Shelf neighbor{topic && ` · about ${topic}`}</span>
-          <span className="muted">Say hi and pick a time and place to meet.</span>
+          <span className="muted">Spare Shelf neighbor</span>
         </div>
 
         {loadError && <p className="error dm-load">{loadError}</p>}
@@ -215,23 +133,5 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
       </form>
       {error && <p className="error dm-error">{error}</p>}
     </section>
-  );
-}
-
-/** Giver's note: the receiver can see your live location while you head to the pickup spot (with Pause). */
-export function LiveNote({ liveShare, otherId, otherName }) {
-  if (!liveShare) return null;
-  const isPaused = liveShare.paused.includes(otherId);
-  return (
-    <span className="live-note">
-      <span>
-        {isPaused
-          ? <>⏸ Live location paused for {otherName}.</>
-          : liveShare.liveOn
-            ? <>📡 {otherName} can see your live location until the hand-off is done.</>
-            : <>📡 Turn on location (see the map) so {otherName} can see you coming.</>}
-      </span>
-      <button className="btn ghost small" onClick={() => liveShare.onTogglePause(otherId)}>{isPaused ? "Resume" : "Pause"}</button>
-    </span>
   );
 }

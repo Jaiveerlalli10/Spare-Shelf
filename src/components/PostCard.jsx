@@ -2,8 +2,9 @@
 import { claimPost, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
+import LiveNote from "./LiveNote";
 import Reputation from "./Reputation";
-import { milesToPost, awayLabel, tripFor } from "../location";
+import { milesToPost, milesBetween, awayLabel, tripFor } from "../location";
 import { handoffRoles } from "../data";
 import { foodEmoji } from "../foodEmoji";
 
@@ -23,12 +24,14 @@ const firstName = (name) => (name || "").split(" ")[0];
 // `onDirections(post)` shows walking directions to this post on the map.
 // `onReview(post)` opens the hand-off review sheet.
 // `pickup`: the pickup spot for this hand-off (if chosen); `onChoosePickup(post)` lets the giver choose it.
-export default function PostCard({ post, user, here, onMessage, onReview, onDirections, pickup, onChoosePickup, index = 0 }) {
+// `onAcceptPickup(post)` lets the receiver accept it; `liveShare` controls the giver's live location (Pause).
+export default function PostCard({ post, user, here, onMessage, onReview, onDirections, pickup, onChoosePickup, onAcceptPickup, liveShare, index = 0 }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
   const days = daysUntil(post.expiresOn);
-  const away = isMine ? "" : awayLabel(milesToPost(here, post));
+  // Distance to the pickup spot if there is one, otherwise to the poster's (rounded) area.
+  const away = isMine ? "" : awayLabel(pickup && here ? milesBetween(here, pickup) : milesToPost(here, post));
   const inChat = isMine || claimedByMe; // the two people in this hand-off
   const otherName = isMine ? post.claimedByName : post.ownerName;
   const messageButton = (
@@ -77,7 +80,7 @@ export default function PostCard({ post, user, here, onMessage, onReview, onDire
       </h2>
       {!isMine && <Reputation uid={post.ownerId} />}
       <p className="meta">
-        📍 {post.location}{away && <> · <span className="away">{away}</span></>} · {timeAgo(post.createdAt)}
+        📍 {pickup ? pickup.label : post.location}{away && <> · <span className="away">{away}</span></>} · {timeAgo(post.createdAt)}
         {days !== null && (
           <span className={days <= 1 ? "expiry soon" : "expiry"}>
             {" "}· {expiryLabel(days)}
@@ -85,9 +88,14 @@ export default function PostCard({ post, user, here, onMessage, onReview, onDire
         )}
       </p>
       {post.notes && <p className="notes">{post.notes}</p>}
+      {user && inChat && post.status === "claimed" && (
+        <PickupStatus post={post} user={user} pickup={pickup} onAcceptPickup={onAcceptPickup} liveShare={liveShare} />
+      )}
       <div className="actions">
         {/* The giver of an active hand-off chooses where to meet. */}
-        {user && post.status === "claimed" && handoffRoles(post).giverId === user.uid && onChoosePickup && (
+        {user && onChoosePickup && (post.status === "claimed"
+          ? handoffRoles(post).giverId === user.uid
+          : isMine && post.type === "offer" && post.status === "open") && (
           <button className="btn ghost" onClick={() => onChoosePickup(post)}>
             📍 {pickup ? `Pickup: ${pickup.label}` : "Choose pickup spot"}
           </button>
@@ -101,5 +109,28 @@ export default function PostCard({ post, user, here, onMessage, onReview, onDire
       </div>
       </div>
     </article>
+  );
+}
+
+/** Pickup spot status for the two people in a hand-off (this used to live in the chat). */
+function PickupStatus({ post, user, pickup, onAcceptPickup, liveShare }) {
+  const { giverId, giverName, receiverId, receiverName } = handoffRoles(post);
+  const iGive = giverId === user.uid;
+  if (iGive) {
+    if (!pickup) return <p className="card-pickup muted">Choose a pickup spot so {receiverName} knows where to meet you.</p>;
+    return (
+      <div className={pickup.accepted ? "card-pickup agreed" : "card-pickup"}>
+        <span>{pickup.accepted ? `✅ ${receiverName} accepted the pickup spot.` : `⏳ Waiting for ${receiverName} to accept the pickup spot.`}</span>
+        <LiveNote liveShare={liveShare} otherId={receiverId} otherName={receiverName} />
+      </div>
+    );
+  }
+  if (!pickup) return <p className="card-pickup muted">Waiting for {giverName} to choose a pickup spot.</p>;
+  if (pickup.accepted) return <p className="card-pickup agreed">✅ Pickup at <strong>{pickup.label}</strong></p>;
+  return (
+    <div className="card-pickup">
+      <span>📍 {giverName} suggests <strong>{pickup.label}</strong></span>
+      {onAcceptPickup && <button className="btn primary small" onClick={() => onAcceptPickup(post)}>Accept</button>}
+    </div>
   );
 }
