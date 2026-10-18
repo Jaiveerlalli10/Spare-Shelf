@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useRef, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, syncCommunity, claimPost, addLocationToPost, addClaimerLocation, setPickupSpot, setPostPickup, acceptPickupSpot, pickupsFor, handoffRoles, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, syncCommunity, claimPost, clearHistory, clearedFromHistory, HISTORY_KEEP_DAYS, addLocationToPost, addClaimerLocation, setPickupSpot, setPostPickup, acceptPickupSpot, declinePickupSpot, pickupsFor, handoffRoles, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -168,7 +168,7 @@ export default function App() {
     const involved = user && (p.ownerId === user.uid || p.claimedById === user.uid);
     // My posts: still in progress. History: hand-offs that are done.
     if (activeTab === "mine" && !(involved && p.status !== "completed")) return false;
-    if (activeTab === "history" && !(involved && p.status === "completed")) return false;
+    if (activeTab === "history" && !(involved && p.status === "completed" && !clearedFromHistory(p, user))) return false;
     if (filter !== "all" && p.type !== filter) return false;
     if (term && !`${p.item} ${p.location} ${p.notes} ${p.ownerName}`.toLowerCase().includes(term)) return false;
     return true;
@@ -224,6 +224,24 @@ export default function App() {
     return () => clearTimeout(done);
   }, [focusPostId]);
 
+  const [clearing, setClearing] = useState(false);
+  async function onClearHistory() {
+    const ok = window.confirm(
+      `Clear your history? These hand-offs disappear from your History now. ` +
+      `The other person still sees them until they clear theirs too, ` +
+      `and ${HISTORY_KEEP_DAYS} days after that they're permanently deleted.`
+    );
+    if (!ok) return;
+    setClearing(true);
+    try {
+      await clearHistory(user, posts);
+    } catch (err) {
+      alert("Couldn't clear your history: " + err.message);
+    } finally {
+      setClearing(false);
+    }
+  }
+
   const mapTarget = posts.find((p) => p.id === mapTargetId) || null;
 
   // ---------- Live location + pickup spots ----------
@@ -232,7 +250,14 @@ export default function App() {
 
   // Pickup spot in effect for each post: { [postId]: { lat, lng, label, accepted, ... } }.
   // Set in your chat after a claim (private), or listed on the offer when it was posted.
-  const pickups = pickupsFor(posts, chats);
+  // A spot the receiver declined doesn't count: no directions or live location to it,
+  // and the giver is asked to choose another one.
+  const pickups = {};
+  const declinedPickups = {};
+  for (const [postId, spot] of Object.entries(pickupsFor(posts, chats))) {
+    if (spot.declined) declinedPickups[postId] = spot;
+    else pickups[postId] = spot;
+  }
 
   // Picking mode on the map: { key, title, subtitle, initial, save(spot) }.
   const [pickRequest, setPickRequest] = useState(null);
@@ -245,14 +270,14 @@ export default function App() {
     }
   }
   // "📍 Choose pickup spot" on a post: on an unclaimed offer it's saved on the post (public);
-  // once claimed it's saved in your chat and the receiver accepts it.
+  // once claimed it's saved in your chat, and the other person accepts or declines it.
   function choosePickup(post) {
     const claimed = post.status === "claimed";
     const other = post.ownerId === uid ? post.claimedByName : post.ownerName;
     startPicking({
       key: post.id,
       subtitle: claimed ? `for ${post.item} with ${other}` : `for your ${post.item} offer`,
-      initial: pickups[post.id] || null,
+      initial: pickups[post.id] || declinedPickups[post.id] || null,
       save: async (spot) => {
         if (claimed) await setPickupSpot(user, post, spot);
         else await setPostPickup(post, spot);
@@ -305,6 +330,16 @@ export default function App() {
     } catch (err) {
       alert("Couldn't accept the pickup spot: " + err.message);
     }
+  }
+  // Decline, then open the map right away so you can suggest a spot that works for you.
+  async function declinePickup(post) {
+    try {
+      await declinePickupSpot(user, post, pickups[post.id]);
+    } catch (err) {
+      alert("Couldn't decline the pickup spot: " + err.message);
+      return;
+    }
+    choosePickup(post);
   }
 
   // "🧭 Directions" buttons: select the post on the map. On narrow screens the map sits
@@ -464,6 +499,14 @@ export default function App() {
             />
           </div>
 
+          {activeTab === "history" && visible.length > 0 && (
+            <div className="history-actions">
+              <button className="btn ghost" onClick={onClearHistory} disabled={clearing}>
+                {clearing ? "Clearing…" : "🗑️ Clear history"}
+              </button>
+            </div>
+          )}
+
           <main className="feed">
             {!user && !isDemoMode ? (
               <p className="empty">Sign in to see what your neighbors are sharing.</p>
@@ -478,7 +521,7 @@ export default function App() {
             ) : (
               visible.map((p, i) => (
                 <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onClaim={claim} onReview={setReviewPost} onDirections={showDirections}
-                  pickup={pickups[p.id]} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} liveShare={liveShare} index={i} focused={p.id === focusPostId} />
+                  pickup={pickups[p.id]} declinedPickup={declinedPickups[p.id]} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onDeclinePickup={declinePickup} liveShare={liveShare} index={i} focused={p.id === focusPostId} />
               ))
             )}
           </main>
@@ -490,7 +533,8 @@ export default function App() {
       {/* ---------- Right column: map + directions ---------- */}
       {showApp && activeTab !== "community" && (
         <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} device={device} posts={posts} user={user} target={mapTarget}
-          pickups={pickups} picking={pickRequest} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} liveShare={liveShare}
+          pickups={pickups} picking={pickRequest} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onDeclinePickup={declinePickup}
+          declinedPickups={declinedPickups} liveShare={liveShare}
           onPickSave={savePick} onPickCancel={() => setPickRequest(null)}
           onSelect={(post) => setMapTargetId(post.id)} onClear={() => setMapTargetId(null)} />
       )}

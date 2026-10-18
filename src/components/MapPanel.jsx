@@ -6,7 +6,7 @@ import "leaflet/dist/leaflet.css";
 import { foodEmoji } from "../foodEmoji";
 import { walkingRoute, stepText, formatWalkDistance } from "../directions";
 import { noTripReason, tripFor } from "../location";
-import { handoffRoles, pairId, watchLiveLocation, LIVE_FRESH_MS } from "../data";
+import { handoffRoles, pickupProposer, pairId, watchLiveLocation, LIVE_FRESH_MS } from "../data";
 import { searchPlaces, reverseGeocode } from "../geocode";
 import LiveNote from "./LiveNote";
 
@@ -28,7 +28,7 @@ const REROUTE_METERS = 20; // walk this far from where the route started before 
 // Directions go from your live location (or `here`) to the pickup spot, or the giver's area if none is set yet.
 export default function MapPanel({
   here, homeLabel, device, posts, user, target, pickups = {}, picking,
-  onSelect, onClear, onChoosePickup, onAcceptPickup, onPickSave, onPickCancel, liveShare,
+  onSelect, onClear, onChoosePickup, onAcceptPickup, onDeclinePickup, declinedPickups = {}, onPickSave, onPickCancel, liveShare,
 }) {
   const boxRef = useRef(null);
   const mapRef = useRef(null);
@@ -160,6 +160,11 @@ export default function MapPanel({
     ? handoffRoles(target).giverId === user.uid
     : openOffer && target.ownerId === user.uid));
   const otherName = target && user ? (target.ownerId === user.uid ? target.claimedByName : target.ownerName) : "";
+  // After a decline either person can suggest a spot; whoever suggested it waits for the other.
+  const inHandoff = Boolean(target && user && target.status === "claimed" && (target.ownerId === user.uid || target.claimedById === user.uid));
+  const declinedSpot = target && inHandoff ? declinedPickups[target.id] : null;
+  const iProposed = Boolean(targetPickup && user && inHandoff && pickupProposer(target, targetPickup) === user.uid);
+  const showPickupBox = iGive || iProposed || Boolean(declinedSpot && !targetPickup);
 
   // Where the route ends; like routeFrom, only moves after REROUTE_METERS so it doesn't jitter.
   const [routeTo, setRouteTo] = useState(null);
@@ -505,20 +510,28 @@ export default function MapPanel({
             <button className="map-close" onClick={onClear} aria-label="Close directions">×</button>
           </div>
 
-          {/* Giver: the spot you chose and whether it's accepted */}
-          {iGive && (
+          {/* The spot you suggested (or the one that was declined) and where it stands */}
+          {showPickupBox && (
             <div className="map-pickup">
               {targetPickup ? (
                 <span>
                   📍 Pickup spot: <strong>{targetPickup.label}</strong>
-                  {openOffer ? " · shown on your post" : targetPickup.accepted ? ` · ✅ ${otherName} accepted` : ` · waiting for ${otherName} to accept`}
+                  {openOffer ? " · shown on your post"
+                    : targetPickup.accepted ? " · ✅ accepted"
+                    : iProposed ? ` · waiting for ${otherName} to accept`
+                    : ` · suggested by ${otherName}`}
+                </span>
+              ) : declinedSpot ? (
+                <span>
+                  ❌ {pickupProposer(target, declinedSpot) === user.uid ? `${otherName} declined` : "You declined"}{" "}
+                  <strong>{declinedSpot.label}</strong>. Suggest another spot.
                 </span>
               ) : (
                 <span>Choose where {openOffer ? "neighbors" : otherName} should pick it up.</span>
               )}
               {onChoosePickup && (
                 <button className="btn small ghost" onClick={() => onChoosePickup(target)}>
-                  {targetPickup ? "Change" : "📍 Choose pickup spot"}
+                  {targetPickup ? "Change" : declinedSpot ? "📍 Suggest a spot" : "📍 Choose pickup spot"}
                 </button>
               )}
             </div>
@@ -545,10 +558,13 @@ export default function MapPanel({
               {goal.kind === "proposed" && (
                 <>
                   📍 To the suggested pickup spot: <strong>{goal.label}</strong>
-                  {iGive
+                  {iProposed
                     ? <span className="muted"> · waiting for {goal.name} to accept</span>
-                    : onAcceptPickup && (
-                      <button className="btn primary small map-accept" onClick={() => onAcceptPickup(target)}>Accept spot</button>
+                    : (
+                      <>
+                        {onAcceptPickup && <button className="btn primary small map-accept" onClick={() => onAcceptPickup(target)}>Accept spot</button>}
+                        {onDeclinePickup && <button className="btn ghost small map-accept" onClick={() => onDeclinePickup(target)}>Decline</button>}
+                      </>
                     )}
                 </>
               )}

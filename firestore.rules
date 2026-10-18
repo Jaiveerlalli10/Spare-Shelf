@@ -33,6 +33,21 @@ service cloud.firestore {
          (request.resource.data.status == "claimed" ||
           (request.resource.data.status == "completed" && resource.data.get("ownerConfirmed", false) == true)))
       );
+      // Either person in a finished hand-off can clear it from their own History.
+      // deleteAt (about 30 days out) is set only once both have cleared it; TTL then deletes the post.
+      allow update: if signedIn()
+        && resource.data.status == "completed"
+        && request.auth.uid in [resource.data.ownerId, resource.data.claimedById]
+        && onlyChanges(["historyClearedBy", "deleteAt"])
+        && request.resource.data.historyClearedBy is list
+        && request.resource.data.historyClearedBy.hasAll(resource.data.get("historyClearedBy", []))
+        && request.resource.data.historyClearedBy.hasAll([request.auth.uid])
+        && request.resource.data.historyClearedBy.hasOnly([resource.data.ownerId, resource.data.claimedById])
+        && (request.resource.data.historyClearedBy.hasAll([resource.data.ownerId, resource.data.claimedById])
+          ? (request.resource.data.deleteAt is timestamp
+             && request.resource.data.deleteAt > request.time + duration.value(29, "d")
+             && request.resource.data.deleteAt < request.time + duration.value(31, "d"))
+          : !("deleteAt" in request.resource.data));
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
     }
     // Profile is private. Housing coordinates have to sit near the campus point.

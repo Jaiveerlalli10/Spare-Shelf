@@ -24,6 +24,7 @@ Open the link it prints (usually http://localhost:5173). Without Firebase keys t
 5. Copy `.env.example` to `.env.local` and paste the values in. Share this file with teammates privately; it's not committed to git.
 6. Restart `npm run dev`. The demo banner disappears and posts now sync live between everyone's browsers.
 7. Before the demo, paste `firestore.rules` into **Firestore → Rules** and click Publish. This makes sure people can only edit their own posts.
+8. Turn on auto-delete for cleared history: **Firestore → TTL → Create policy**, collection group `posts`, timestamp field `deleteAt`. A post is cleared once both people press "Clear history", and Firestore deletes it for good after its `deleteAt` time (30 days later, usually within a day of that).
 
 ## How the code is organized
 

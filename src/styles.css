@@ -297,6 +297,7 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   margin: 10px 0 0; padding: 8px 12px; border-radius: 12px; background: #1d1230; font-size: 0.88rem;
 }
 .card-pickup.agreed { background: var(--basil-bg); }
+.card-pickup.declined { background: var(--tomato-bg); }
 .map-accept { margin-left: 8px; }
 .expiry.soon { color: var(--warn); font-weight: 700; }
 
@@ -880,3 +881,5 @@ button.community-open { cursor: pointer; }
 button.community-open:hover .what strong, button.community-open:focus-visible .what strong { text-decoration: underline; }
 .card.post.focused { animation: focus-flash 2.2s ease-out; }
 @keyframes focus-flash { 0%, 40% { box-shadow: 0 0 0 3px #3797f0; } 100% { box-shadow: 0 0 0 3px transparent; } }
+
+.history-actions { display: flex; justify-content: flex-end; margin: 0 0 12px; }

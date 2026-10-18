@@ -13,6 +13,9 @@
 //   approxLat, approxLng: the poster's housing rounded to ~200 m, for "0.3 mi away" (null if unknown),
 //   claimerApproxLat, claimerApproxLng: the claimer's housing, rounded the same way (set when claiming),
 //   ownerConfirmed, claimerConfirmed: true once each side confirms the hand-off,
+//   historyClearedBy: uids of the two people who cleared it from their History,
+//   deleteAt: Timestamp, set once both have cleared it. Firestore's TTL policy then
+//     deletes the post for good (see README),
 //   createdAt: number (milliseconds)
 // }
 // A post becomes "completed" only when BOTH sides have confirmed.
@@ -26,7 +29,7 @@ import { communityId } from "./community";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
 import {
   addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction,
-  setDoc, updateDoc, where, writeBatch,
+  setDoc, Timestamp, updateDoc, where, writeBatch,
 } from "firebase/firestore";
 
 export const isDemoMode = !firebaseReady;
@@ -299,6 +302,44 @@ export async function claimPost(user, post, origin) {
   if (!isDemoMode) await updateDoc(doc(db, "posts", post.id), changes);
   else demo.updatePost(post.id, changes);
   await ensureChat({ ...post, ...changes });
+}
+
+// ---------- History ----------
+
+export const HISTORY_KEEP_DAYS = 30;
+
+/** True if this person cleared the post from their History. */
+export function clearedFromHistory(post, user) {
+  return Boolean(user && (post.historyClearedBy || []).includes(user.uid));
+}
+
+/**
+ * Hides these finished hand-offs from your History. The other person still sees them.
+ * Once both people have cleared a post, it's permanently deleted 30 days later.
+ */
+export async function clearHistory(user, posts) {
+  const mine = posts.filter((p) => p.status === "completed" && !clearedFromHistory(p, user)
+    && (p.ownerId === user.uid || p.claimedById === user.uid));
+  const changesFor = (current) => {
+    const clearedBy = [...new Set([...(current.historyClearedBy || []), user.uid])];
+    const both = clearedBy.includes(current.ownerId) && clearedBy.includes(current.claimedById);
+    const changes = { historyClearedBy: clearedBy };
+    if (both) changes.deleteAt = Date.now() + HISTORY_KEEP_DAYS * 24 * 60 * 60 * 1000;
+    return changes;
+  };
+  if (isDemoMode) {
+    for (const p of mine) demo.updatePost(p.id, changesFor(p));
+    return;
+  }
+  // A transaction per post, so two people clearing at the same moment still set deleteAt.
+  await Promise.all(mine.map((p) => runTransaction(db, async (tx) => {
+    const ref = doc(db, "posts", p.id);
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
+    const changes = changesFor(snap.data());
+    if (changes.deleteAt) changes.deleteAt = Timestamp.fromMillis(changes.deleteAt);
+    tx.update(ref, changes);
+  })));
 }
 
 // ---------- Hand-off (both sides confirm) ----------
@@ -609,11 +650,14 @@ export function isUnread(chat, user) {
   return Boolean(chat.lastSenderId) && chat.lastSenderId !== user.uid && (chat.lastAt || 0) > seen;
 }
 
-// ---------- Pickup spots (giver chooses, receiver accepts) ----------
+// ---------- Pickup spots (one person suggests, the other accepts or declines) ----------
+//
+// The giver suggests first. If the receiver declines, they can suggest their own spot,
+// and it goes back and forth until one is accepted.
 //
 // Stored in the two people's private chat: chats/{pairId}.pickups.{postId} =
-// { lat, lng, label, setBy, setAt, accepted, acceptedAt }. Only those two can read it.
-// Changing the spot resets `accepted`, so the receiver accepts the new one.
+// { lat, lng, label, setBy, setAt, accepted, acceptedAt, declined, declinedAt }. Only those two can read it.
+// Changing the spot resets `accepted` and `declined`, so the receiver answers the new one.
 
 function otherInPost(post, user) {
   return post.ownerId === user.uid
@@ -621,7 +665,12 @@ function otherInPost(post, user) {
     : { id: post.ownerId, name: post.ownerName };
 }
 
-/** The giver sets (or changes) the pickup spot for a claimed post, and the chat gets a message about it. */
+/** Who suggested this spot. A spot listed on an offer was set by the giver (the poster). */
+export function pickupProposer(post, pickup) {
+  return (pickup && pickup.setBy) || handoffRoles(post).giverId;
+}
+
+/** Either person suggests (or changes) the pickup spot for a claimed post; the chat gets a message about it. */
 export async function setPickupSpot(user, post, spot) {
   const other = otherInPost(post, user);
   const chatId = await ensureChat(post);
@@ -656,6 +705,24 @@ export async function acceptPickupSpot(user, post, pickup) {
   if (!isDemoMode) await updateDoc(doc(db, "chats", chatId), { [`pickups.${post.id}`]: value });
   else demo.setPickup(chatId, post.id, value);
   await sendMessage(user, { id: chatId, members: [user.uid, other.id].sort() }, `✅ Sounds good, see you at ${pickup.label}!`);
+}
+
+/**
+ * The receiver turns down the suggested pickup spot. It's kept (marked declined) so both people
+ * see what was turned down, and the giver is asked to choose another one.
+ */
+export async function declinePickupSpot(user, post, pickup) {
+  const other = otherInPost(post, user);
+  const chatId = await ensureChat(post);
+  const value = {
+    lat: pickup.lat, lng: pickup.lng, label: pickup.label,
+    setBy: pickup.setBy || post.ownerId, setAt: pickup.setAt || Date.now(),
+    accepted: false, acceptedAt: 0, declined: true, declinedAt: Date.now(),
+  };
+  if (!isDemoMode) await updateDoc(doc(db, "chats", chatId), { [`pickups.${post.id}`]: value });
+  else demo.setPickup(chatId, post.id, value);
+  await sendMessage(user, { id: chatId, members: [user.uid, other.id].sort() },
+    `❌ ${pickup.label} doesn't work for me for ${post.item}. Could you choose another pickup spot?`);
 }
 
 /** { [postId]: pickup } from all of this user's chats. */
@@ -853,7 +920,9 @@ const demo = (() => {
       save("spareShelf.profiles", profiles);
       emit("profile");
     },
-    getPosts: () => [...posts].sort((a, b) => b.createdAt - a.createdAt),
+    getPosts: () => [...posts]
+      .filter((p) => !(typeof p.deleteAt === "number" && p.deleteAt <= Date.now()))
+      .sort((a, b) => b.createdAt - a.createdAt),
     addPost(p) { setPosts([{ ...p, id: "p" + Date.now() }, ...posts]); },
     updatePost(id, changes) { setPosts(posts.map((p) => (p.id === id ? { ...p, ...changes } : p))); },
     removePost(id) { setPosts(posts.filter((p) => p.id !== id)); },
