@@ -525,12 +525,13 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 }
 .dm-strip.done { background: var(--basil-bg); font-weight: 600; }
 .dm-strips { max-height: 34%; overflow-y: auto; flex-shrink: 0; }
-.dm-live {
+.dm-strip { flex-direction: column; align-items: stretch; }
+.dm-strip-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.dm-pickup {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
-  padding: 8px 16px; font-size: 0.85rem; background: var(--sky-bg); border-bottom: 1px solid var(--border);
+  margin-top: 6px; padding: 6px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.25); font-size: 0.84rem;
 }
-.dm-live.on { background: #1d1230; }
-.dm-live.on strong { color: #c58bff; }
+.dm-pickup.agreed { background: var(--basil-bg); }
 .dm-strips .dm-strip + .dm-strip { border-top: 1px solid var(--border); }
 .dm-strip-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dm-strip .btn { padding: 5px 12px; font-size: 0.84rem; }
@@ -711,11 +712,26 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
   box-shadow: 0 0 0 6px rgba(163, 52, 250, 0.25);
 }
 
-/* The giver's live location at the end of a route: pulsing purple */
-.map-dest.live span { animation: pulse-purple 2s ease-out infinite; }
-@keyframes pulse-purple {
-  0% { box-shadow: 0 0 0 0 rgba(163, 52, 250, 0.6); }
-  100% { box-shadow: 0 0 0 18px rgba(163, 52, 250, 0); }
+/* Pickup spot pin (📍 suggested, ✅ agreed) */
+.map-pickup-pin .pin {
+  display: grid; place-items: center; width: 40px; height: 40px;
+  border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  background: #1d1230; border: 3px solid #a334fa; box-shadow: 0 0 0 6px rgba(163, 52, 250, 0.22), 0 8px 18px -4px rgba(0, 0, 0, 0.9);
+}
+.map-pickup-pin.accepted .pin { border-color: var(--basil); background: var(--basil-bg); box-shadow: 0 0 0 6px rgba(92, 208, 142, 0.2), 0 8px 18px -4px rgba(0, 0, 0, 0.9); }
+.map-pickup-pin .pin-emoji { transform: rotate(45deg); font-size: 1.05rem; line-height: 1; }
+.leaflet-container.picking { cursor: crosshair; }
+.picking-card { border: 1px solid #a334fa; }
+.pick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.pick-label { display: block; margin-top: 10px; font-size: 0.8rem; font-weight: 700; color: var(--muted); }
+.pick-label input {
+  display: block; width: 100%; margin-top: 4px; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-solid); color: var(--text);
+}
+.pick-label input:focus { outline: none; border-color: #a334fa; box-shadow: 0 0 0 3px rgba(163, 52, 250, 0.25); }
+.map-pickup {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  margin-top: 8px; padding: 8px 10px; border-radius: 12px; background: #1d1230; font-size: 0.86rem;
 }
 
 /* Directions card under the map */

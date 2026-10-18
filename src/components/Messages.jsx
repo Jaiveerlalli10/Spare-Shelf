@@ -47,7 +47,7 @@ function topicLabel(between, latest) {
 }
 
 // `openWith` is the uid of the person whose conversation is open (or null for the inbox).
-export default function Messages({ user, chats, posts, openWith, onOpen, onBack, onDirections, sharingWith = [], onToggleShare, liveOn }) {
+export default function Messages({ user, chats, posts, openWith, onOpen, onBack, onDirections, onChoosePickup, onAcceptPickup }) {
   const groups = groupByPerson(chats, user);
   const people = usePeople(groups.map((g) => g.other.id));
 
@@ -58,7 +58,7 @@ export default function Messages({ user, chats, posts, openWith, onOpen, onBack,
       <ErrorBoundary key={openWith} label="This chat">
         <ChatView user={user} other={group.other} chats={group.chats} posts={postsBetween(posts, user, openWith)}
           photoURL={people[openWith]?.photoURL} onBack={onBack} onDirections={onDirections}
-          sharing={sharingWith.includes(openWith)} onToggleShare={() => onToggleShare && onToggleShare(openWith)} liveOn={liveOn} />
+          onChoosePickup={onChoosePickup} onAcceptPickup={onAcceptPickup} />
       </ErrorBoundary>
     );
   }

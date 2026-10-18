@@ -71,6 +71,7 @@ service cloud.firestore {
     }
 
     // Chats (one per pair of people): only the two people in a chat can see it or send messages in it.
+    // The chat doc also holds their pickup spots (pickups.{postId}), so those stay private too.
     match /chats/{chatId} {
       allow read: if signedIn() && request.auth.uid in resource.data.members;
       allow create: if signedIn() && request.auth.uid in request.resource.data.members;
@@ -87,19 +88,6 @@ service cloud.firestore {
         }
         allow read: if signedIn() && isMember();
         allow create: if signedIn() && isMemberAfter() && request.resource.data.senderId == request.auth.uid;
-      }
-
-      // Live location, shared on purpose during a hand-off. Only the two people in the chat can
-      // see it, and each person can only write or delete their own.
-      match /live/{userId} {
-        function inChat() {
-          return request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
-        }
-        allow read: if signedIn() && inChat();
-        allow create, update: if signedIn() && request.auth.uid == userId && inChat()
-          && request.resource.data.keys().hasOnly(["lat", "lng", "accuracy", "updatedAt"])
-          && request.resource.data.lat is number && request.resource.data.lng is number;
-        allow delete: if signedIn() && request.auth.uid == userId;
       }
     }
   }

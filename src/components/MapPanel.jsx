@@ -1,12 +1,12 @@
-// The map on the right: dark street map (OpenStreetMap via Leaflet) with zoom, a "You" dot at your
-// housing, a pin for every active post, and walking directions to the selected post.
+// The map on the right: dark street map (OpenStreetMap via Leaflet) with zoom, a "You" dot,
+// walking directions to the pickup spot, and a "picking" mode where the giver chooses the pickup spot.
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { foodEmoji } from "../foodEmoji";
 import { walkingRoute, stepText, formatWalkDistance } from "../directions";
-import { pickupSpot, noTripReason } from "../location";
-import { handoffRoles, pairId, watchLiveLocation, LIVE_FRESH_MS } from "../data";
+import { noTripReason, tripFor } from "../location";
+import { handoffRoles } from "../data";
 
 const CAMPUS = [47.6553, -122.3035]; // fallback center: UW Seattle
 // Standard OpenStreetMap tiles (free, no key). They're darkened with a CSS filter (.leaflet-tile-pane in styles.css).
@@ -22,9 +22,12 @@ const REROUTE_METERS = 50; // walk this far from where the route started before 
 
 // `here`: your housing { lat, lng } from your profile (or null), with `homeLabel` its name.
 // `device`: your live device location (from useDeviceLocation in App). `target`: the selected post (or null).
-// Directions start from your live location when the browser allows it, otherwise from `here`,
-// and go to the giver's shared live location when they share it, otherwise to their area.
-export default function MapPanel({ here, homeLabel, device, posts, user, target, onSelect, onClear }) {
+// `pickups`: { [postId]: pickup spot } from your chats. `picking`: the post you're choosing a spot for (or null).
+// Directions go from your live location (or `here`) to the pickup spot, or the giver's area if none is set yet.
+export default function MapPanel({
+  here, homeLabel, device, posts, user, target, pickups = {}, picking,
+  onSelect, onClear, onChoosePickup, onPickSave, onPickCancel,
+}) {
   const boxRef = useRef(null);
   const mapRef = useRef(null);
   const pinsRef = useRef(null);
@@ -133,26 +136,11 @@ export default function MapPanel({ here, homeLabel, device, posts, user, target,
   // Active posts with no saved location (posted before locations were saved), so no directions yet.
   const unpinned = posts.filter((p) => p.status !== "completed" && !hasSpot(p)).length;
 
-  // Walking directions from you to wherever you pick the food up (see pickupSpot in location.js).
-  const dest = target ? pickupSpot(target, user) : null;
-
-  // The giver's live location, if they chose to share it with you (active hand-off only).
-  const giverId = target && dest && target.status === "claimed" ? handoffRoles(target).giverId : null;
-  const [giverLive, setGiverLive] = useState(null);
-  useEffect(() => {
-    setGiverLive(null);
-    if (!giverId || !user) return;
-    return watchLiveLocation(pairId(user.uid, giverId), giverId, setGiverLive);
-  }, [giverId, user?.uid]);
-  const [now, setNow] = useState(Date.now()); // ticks so "updated 20s ago" and staleness stay current
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 10000);
-    return () => clearInterval(id);
-  }, []);
-  const liveFresh = giverLive && now - giverLive.updatedAt < LIVE_FRESH_MS;
-  const goal = dest && liveFresh
-    ? { lat: giverLive.lat, lng: giverLive.lng, live: true, updatedAt: giverLive.updatedAt }
-    : dest ? { lat: dest.lat, lng: dest.lng, live: false } : null;
+  // Where you're walking: the pickup spot (agreed or suggested), or the giver's area if none yet.
+  const targetPickup = target ? pickups[target.id] : null;
+  const goal = target ? tripFor(target, user, targetPickup) : null;
+  const iGive = target && target.status === "claimed" && user && handoffRoles(target).giverId === user.uid;
+  const otherName = target && user ? (target.ownerId === user.uid ? target.claimedByName : target.ownerName) : "";
 
   // Where the route ends; like routeFrom, only moves after REROUTE_METERS so it doesn't jitter.
   const [routeTo, setRouteTo] = useState(null);
@@ -160,10 +148,10 @@ export default function MapPanel({ here, homeLabel, device, posts, user, target,
     if (!goal) { setRouteTo(null); return; }
     setRouteTo((prev) => {
       const moved = prev ? L.latLng(prev.lat, prev.lng).distanceTo([goal.lat, goal.lng]) : Infinity;
-      if (prev && prev.live === goal.live && moved < REROUTE_METERS) return prev;
-      return { lat: goal.lat, lng: goal.lng, live: goal.live };
+      if (prev && prev.kind === goal.kind && moved < 5) return prev;
+      return { lat: goal.lat, lng: goal.lng, kind: goal.kind };
     });
-  }, [goal?.lat, goal?.lng, goal?.live]);
+  }, [goal?.lat, goal?.lng, goal?.kind]);
   const fittedFor = useRef(null);
   useEffect(() => { if (!target) fittedFor.current = null; }, [target?.id]);
   useEffect(() => {
@@ -177,25 +165,32 @@ export default function MapPanel({ here, homeLabel, device, posts, user, target,
       setRouteState("idle");
       return;
     }
-    if (!routeFrom || !dest || !routeTo) {
-      // No trip for you: just show where the post is.
+    if (!routeFrom || !goal || !routeTo) {
+      // No trip for you. If you're the giver and chose a pickup spot, show it; otherwise show the post's area.
       setRouteState("idle");
-      if (hasSpot(target)) map.setView([target.approxLat, target.approxLng], Math.max(map.getZoom(), 16));
+      if (targetPickup) {
+        routeRef.current = L.featureGroup([pickupMarker(targetPickup, targetPickup.accepted)]).addTo(map);
+        map.setView([targetPickup.lat, targetPickup.lng], Math.max(map.getZoom(), 16));
+      } else if (hasSpot(target)) {
+        map.setView([target.approxLat, target.approxLng], Math.max(map.getZoom(), 16));
+      }
       return;
     }
     const to = { lat: routeTo.lat, lng: routeTo.lng };
 
-    // Mark the pickup spot (for requests it's the helper's place, which has no post pin).
-    const endMarker = L.marker([to.lat, to.lng], {
-      icon: L.divIcon({ className: routeTo.live ? "map-dest live" : "map-dest", html: "<span>🤝</span>", iconSize: [30, 30] }),
-      title: routeTo.live ? `${dest.name} (live location)` : `Pick up from ${dest.name}`,
-      zIndexOffset: 950,
-    });
+    // Mark where you're going: the pickup spot, or a 🤝 at the giver's area if none is chosen yet.
+    const endMarker = routeTo.kind === "area"
+      ? L.marker([to.lat, to.lng], {
+          icon: L.divIcon({ className: "map-dest", html: "<span>🤝</span>", iconSize: [30, 30] }),
+          title: `${goal.name}'s area`,
+          zIndexOffset: 950,
+        })
+      : pickupMarker({ ...to, label: goal.label }, routeTo.kind === "agreed");
     const from = routeFrom;
     const draw = (layers) => {
       routeRef.current = L.featureGroup([...layers, endMarker]).addTo(map);
       // Zoom to the whole route when it's a new destination, not on every re-route while walking.
-      const fitKey = `${target.id}:${routeTo.live}`;
+      const fitKey = `${target.id}:${routeTo.kind}:${routeTo.lat},${routeTo.lng}`;
       if (fittedFor.current !== fitKey) {
         fittedFor.current = fitKey;
         map.fitBounds(routeRef.current.getBounds(), { padding: [48, 48], maxZoom: 17 });
@@ -222,7 +217,54 @@ export default function MapPanel({ here, homeLabel, device, posts, user, target,
         setRouteState("ready");
       });
     return () => ctrl.abort();
-  }, [target?.id, Boolean(dest), routeTo?.lat, routeTo?.lng, routeTo?.live, routeFrom?.lat, routeFrom?.lng]);
+  }, [target?.id, routeTo?.lat, routeTo?.lng, routeTo?.kind, routeFrom?.lat, routeFrom?.lng,
+      targetPickup?.lat, targetPickup?.lng, targetPickup?.accepted]);
+
+  // ---------- Picking mode: the giver taps (or drags) to choose the pickup spot ----------
+  const [candidate, setCandidate] = useState(null); // { lat, lng }
+  const [spotLabel, setSpotLabel] = useState("");
+  const [saving, setSaving] = useState(false);
+  const candidateRef = useRef(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !picking) return;
+    const existing = pickups[picking.id];
+    setCandidate(existing ? { lat: existing.lat, lng: existing.lng } : null);
+    setSpotLabel(existing ? existing.label : "");
+    if (existing) map.setView([existing.lat, existing.lng], 17);
+    const onClick = (e) => setCandidate({ lat: e.latlng.lat, lng: e.latlng.lng });
+    map.on("click", onClick);
+    map.getContainer().classList.add("picking");
+    return () => {
+      map.off("click", onClick);
+      map.getContainer().classList.remove("picking");
+      setCandidate(null);
+    };
+  }, [picking?.id]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (candidateRef.current) candidateRef.current.remove();
+    candidateRef.current = null;
+    if (!map || !picking || !candidate) return;
+    const marker = pickupMarker({ ...candidate, label: spotLabel || "Pickup spot" }, false, true);
+    marker.on("dragend", () => {
+      const ll = marker.getLatLng();
+      setCandidate({ lat: ll.lat, lng: ll.lng });
+    });
+    candidateRef.current = marker.addTo(map);
+  }, [picking?.id, candidate?.lat, candidate?.lng]);
+
+  async function savePick() {
+    if (!candidate || !spotLabel.trim()) return;
+    setSaving(true);
+    try {
+      await onPickSave(picking, { lat: candidate.lat, lng: candidate.lng, label: spotLabel.trim() });
+    } catch (err) {
+      alert("Couldn't save the pickup spot: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <aside className="map-panel" id="map-panel" aria-label="Map and directions">
@@ -247,7 +289,39 @@ export default function MapPanel({ here, homeLabel, device, posts, user, target,
         )}
       </div>
 
-      {target ? (
+      {picking ? (
+        <div className="map-card picking-card">
+          <div className="map-card-top">
+            <span className="map-card-emoji" aria-hidden>📍</span>
+            <div className="map-card-title">
+              <strong>Choose the pickup spot</strong>
+              <span className="muted">for {picking.item} with {picking.ownerId === user?.uid ? picking.claimedByName : picking.ownerName}</span>
+            </div>
+            <button className="map-close" onClick={onPickCancel} aria-label="Cancel">×</button>
+          </div>
+          <p className="muted">
+            {candidate ? "Drag the pin to adjust it, or tap somewhere else." : "Tap the map where you'd like to meet. Public spots like a lobby or library entrance work best."}
+          </p>
+          <div className="pick-actions">
+            <button className="btn ghost small" disabled={!device.pos} title={device.pos ? "" : "Turn on location first"}
+              onClick={() => {
+                setCandidate({ lat: device.pos.lat, lng: device.pos.lng });
+                if (mapRef.current) mapRef.current.setView([device.pos.lat, device.pos.lng], 17);
+              }}>
+              📡 Use my location
+            </button>
+          </div>
+          <label className="pick-label">Name the spot
+            <input value={spotLabel} onChange={(e) => setSpotLabel(e.target.value)} placeholder="e.g. Alder Hall lobby" maxLength={80} />
+          </label>
+          <div className="pick-actions">
+            <button className="btn primary" onClick={savePick} disabled={!candidate || !spotLabel.trim() || saving}>
+              {saving ? "Saving…" : "Save pickup spot"}
+            </button>
+            <button className="btn ghost" onClick={onPickCancel}>Cancel</button>
+          </div>
+        </div>
+      ) : target ? (
         <div className="map-card">
           <div className="map-card-top">
             <span className="map-card-emoji" aria-hidden>{foodEmoji(target.item)}</span>
@@ -256,33 +330,48 @@ export default function MapPanel({ here, homeLabel, device, posts, user, target,
                 {user && target.ownerId === user.uid ? "Your post" : target.ownerName} · {target.item}
               </strong>
               <span className="muted">
-                📍 {goal && goal.live ? `Meet ${dest.name} where they are` : dest ? `Pick up from ${dest.label}` : target.location}
+                📍 {goal ? (goal.kind === "area" ? `Pick up from ${goal.label}` : goal.label) : targetPickup ? targetPickup.label : target.location}
               </span>
             </div>
             <button className="map-close" onClick={onClear} aria-label="Close directions">×</button>
           </div>
 
-          {!dest && <p className="muted">{noTripReason(target, user)}</p>}
-          {dest && !origin && <p className="muted">Allow location access, or finish your profile, to get directions.</p>}
-          {dest && origin && (
+          {/* Giver: the spot you chose and whether it's accepted */}
+          {iGive && (
+            <div className="map-pickup">
+              {targetPickup ? (
+                <span>
+                  📍 Pickup spot: <strong>{targetPickup.label}</strong>
+                  {targetPickup.accepted ? ` · ✅ ${otherName} accepted` : ` · waiting for ${otherName} to accept`}
+                </span>
+              ) : (
+                <span>Choose where {otherName} should pick it up.</span>
+              )}
+              {onChoosePickup && (
+                <button className="btn small ghost" onClick={() => onChoosePickup(target)}>
+                  {targetPickup ? "Change" : "📍 Choose pickup spot"}
+                </button>
+              )}
+            </div>
+          )}
+          {!goal && !iGive && <p className="muted">{noTripReason(target, user)}</p>}
+          {iGive && <p className="muted">You're giving this, so {otherName} comes to the pickup spot.</p>}
+          {goal && !origin && <p className="muted">Allow location access, or finish your profile, to get directions.</p>}
+          {goal && origin && (
             <p className="map-from">
               {routeFrom && routeFrom.live
                 ? <>📡 From your current location{device.pos && device.pos.accuracy > 0 && ` (±${Math.round(device.pos.accuracy)} m)`}</>
                 : <>🏠 From {homeLabel || "your profile address"}</>}
-
             </p>
           )}
-          {dest && origin && (
+          {goal && origin && (
             <p className="map-from">
-              {goal && goal.live ? (
-                <>📡 To {dest.name}'s live location <span className="muted">(updated {agoText(now - goal.updatedAt)})</span></>
-              ) : (
-                <>
-                  🏠 To {dest.name}'s area
-                  {target.status === "claimed" && (
-                    <span className="muted"> · They aren't sharing their live location. Ask them in chat to tap "Share live location".</span>
-                  )}
-                </>
+              {goal.kind === "agreed" && <>✅ To the agreed pickup spot: <strong>{goal.label}</strong></>}
+              {goal.kind === "proposed" && (
+                <>📍 To the suggested pickup spot: <strong>{goal.label}</strong><span className="muted"> · Accept it in your chat with {goal.name}.</span></>
+              )}
+              {goal.kind === "area" && (
+                <>🏠 To {goal.name}'s area<span className="muted"> · {target.status === "claimed" ? `${goal.name} hasn't chosen a pickup spot yet.` : "Claim it, and they'll choose a pickup spot."}</span></>
               )}
             </p>
           )}
@@ -295,8 +384,8 @@ export default function MapPanel({ here, homeLabel, device, posts, user, target,
                 <span><b>{formatWalkDistance(route.distance)}</b></span>
               </div>
               {route.straight && <p className="muted">Couldn't get street directions, so this is a straight line.</p>}
-              {!(goal && goal.live) && (
-                <p className="muted map-approx">The pickup spot is approximate (about a block). Confirm the exact spot in chat.</p>
+              {goal && goal.kind === "area" && (
+                <p className="muted map-approx">This area is approximate (about a block). The giver will choose the exact pickup spot.</p>
               )}
               {route.steps.length > 0 && (
                 <button className="link" onClick={() => setShowSteps(!showSteps)}>
@@ -365,7 +454,17 @@ function LocationNotice({ device }) {
   );
 }
 
-function agoText(ms) {
-  const sec = Math.max(1, Math.round(ms / 1000));
-  return sec < 60 ? `${sec}s ago` : `${Math.round(sec / 60)} min ago`;
+/** 📍 marker for a pickup spot (green check once accepted). `draggable` while the giver is choosing it. */
+function pickupMarker(spot, accepted, draggable = false) {
+  return L.marker([spot.lat, spot.lng], {
+    icon: L.divIcon({
+      className: accepted ? "map-pickup-pin accepted" : "map-pickup-pin",
+      html: `<span class="pin"><span class="pin-emoji">${accepted ? "✅" : "📍"}</span></span>`,
+      iconSize: [40, 40],
+      iconAnchor: [20, 40],
+    }),
+    title: spot.label || "Pickup spot",
+    draggable,
+    zIndexOffset: 960,
+  });
 }

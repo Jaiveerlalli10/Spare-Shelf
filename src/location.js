@@ -147,3 +147,21 @@ export function publicPlaceLabel(profile) {
   }
   return label;
 }
+
+// ---------- Pickup spots ----------
+//
+// The giver chooses a pickup spot for each hand-off and the receiver accepts it. It's stored in the
+// two people's private chat (chats/{pairId}.pickups.{postId}: { lat, lng, label, setBy, setAt, accepted }).
+
+/**
+ * Where the receiver should walk for this post: the chosen pickup spot if there is one
+ * (kind "agreed" or "proposed"), otherwise the giver's general area (kind "area"). null if `user` doesn't travel.
+ */
+export function tripFor(post, user, pickup) {
+  const area = pickupSpot(post, user);
+  if (!area) return null;
+  if (pickup && post.status === "claimed" && Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng)) {
+    return { lat: pickup.lat, lng: pickup.lng, name: area.name, label: pickup.label, kind: pickup.accepted ? "agreed" : "proposed" };
+  }
+  return { ...area, kind: "area" };
+}

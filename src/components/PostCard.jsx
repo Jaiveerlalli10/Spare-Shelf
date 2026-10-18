@@ -2,7 +2,8 @@
 import { claimPost, deletePost } from "../data";
 import { daysUntil, expiryLabel } from "../dates";
 import Handoff from "./Handoff";
-import { milesToPost, awayLabel, pickupSpot } from "../location";
+import { milesToPost, awayLabel, tripFor } from "../location";
+import { handoffRoles } from "../data";
 import { foodEmoji } from "../foodEmoji";
 
 function timeAgo(ms) {
@@ -19,7 +20,8 @@ const firstName = (name) => (name || "").split(" ")[0];
 // `here` is the viewer's housing location, used to show "0.3 mi away".
 // `index` staggers the entrance animation.
 // `onDirections(post)` shows walking directions to this post on the map.
-export default function PostCard({ post, user, here, onMessage, onDirections, index = 0 }) {
+// `pickup`: the pickup spot for this hand-off (if chosen); `onChoosePickup(post)` lets the giver choose it.
+export default function PostCard({ post, user, here, onMessage, onDirections, pickup, onChoosePickup, index = 0 }) {
   const isOffer = post.type === "offer";
   const isMine = user && post.ownerId === user.uid;
   const claimedByMe = user && post.claimedById === user.uid;
@@ -82,8 +84,14 @@ export default function PostCard({ post, user, here, onMessage, onDirections, in
       </p>
       {post.notes && <p className="notes">{post.notes}</p>}
       <div className="actions">
+        {/* The giver of an active hand-off chooses where to meet. */}
+        {user && post.status === "claimed" && handoffRoles(post).giverId === user.uid && onChoosePickup && (
+          <button className="btn ghost" onClick={() => onChoosePickup(post)}>
+            📍 {pickup ? `Pickup: ${pickup.label}` : "Choose pickup spot"}
+          </button>
+        )}
         {/* Only the person receiving the food walks, so only they get directions. */}
-        {here && onDirections && pickupSpot(post, user) && (
+        {here && onDirections && tripFor(post, user, pickup) && (
           <button className="btn ghost" onClick={() => onDirections(post)}>🧭 Directions</button>
         )}
         {actions}

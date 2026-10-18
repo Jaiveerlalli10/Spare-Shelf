@@ -466,42 +466,51 @@ export function isUnread(chat, user) {
   return Boolean(chat.lastSenderId) && chat.lastSenderId !== user.uid && (chat.lastAt || 0) > seen;
 }
 
-// ---------- Live location sharing (opt-in, during a hand-off) ----------
+// ---------- Pickup spots (giver chooses, receiver accepts) ----------
 //
-// While someone chooses to share, their exact live position is written to
-// chats/{pairId}/live/{uid}: { lat, lng, accuracy, updatedAt }. Only the two people in that
-// chat can read it (see firestore.rules). It's deleted when they stop sharing, and anything
-// older than LIVE_FRESH_MS is ignored (e.g. if they just closed the app).
+// Stored in the two people's private chat: chats/{pairId}.pickups.{postId} =
+// { lat, lng, label, setBy, setAt, accepted, acceptedAt }. Only those two can read it.
+// Changing the spot resets `accepted`, so the receiver accepts the new one.
 
-export const LIVE_FRESH_MS = 3 * 60 * 1000;
-
-export async function shareLiveLocation(user, otherId, pos) {
-  const data = { lat: pos.lat, lng: pos.lng, accuracy: Math.round(pos.accuracy || 0), updatedAt: Date.now() };
-  const chatId = pairId(user.uid, otherId);
-  if (!isDemoMode) return setDoc(doc(db, "chats", chatId, "live", user.uid), data);
-  demo.setLive(chatId, user.uid, data);
+function otherInPost(post, user) {
+  return post.ownerId === user.uid
+    ? { id: post.claimedById, name: post.claimedByName }
+    : { id: post.ownerId, name: post.ownerName };
 }
 
-export async function stopSharingLiveLocation(user, otherId) {
-  const chatId = pairId(user.uid, otherId);
-  if (!isDemoMode) return deleteDoc(doc(db, "chats", chatId, "live", user.uid));
-  demo.setLive(chatId, user.uid, null);
+/** The giver sets (or changes) the pickup spot for a claimed post, and the chat gets a message about it. */
+export async function setPickupSpot(user, post, spot) {
+  const other = otherInPost(post, user);
+  const chatId = await ensureChat(post);
+  const value = {
+    lat: spot.lat, lng: spot.lng, label: spot.label.trim().slice(0, 80),
+    setBy: user.uid, setAt: Date.now(), accepted: false, acceptedAt: 0,
+  };
+  if (!isDemoMode) await updateDoc(doc(db, "chats", chatId), { [`pickups.${post.id}`]: value });
+  else demo.setPickup(chatId, post.id, value);
+  await sendMessage(user, { id: chatId, members: [user.uid, other.id].sort() }, `📍 Pickup spot for ${post.item}: ${value.label}`);
 }
 
-/** Calls callback({ lat, lng, accuracy, updatedAt } or null) with `uid`'s shared live location in this chat. */
-export function watchLiveLocation(chatId, uid, callback) {
+/** The receiver accepts the current pickup spot. */
+export async function acceptPickupSpot(user, post, pickup) {
+  const other = otherInPost(post, user);
+  const chatId = pairId(user.uid, other.id);
   if (!isDemoMode) {
-    return listen(
-      doc(db, "chats", chatId, "live", uid),
-      (snap) => callback(snap.exists() ? snap.data() : null),
-      (err) => {
-        console.error("Couldn't load a live location (check Firestore rules):", err);
-        callback(null);
-      }
-    );
+    await updateDoc(doc(db, "chats", chatId), {
+      [`pickups.${post.id}.accepted`]: true,
+      [`pickups.${post.id}.acceptedAt`]: Date.now(),
+    });
+  } else {
+    demo.setPickup(chatId, post.id, { ...pickup, accepted: true, acceptedAt: Date.now() });
   }
-  callback(demo.getLive(chatId, uid));
-  return demo.on("live", () => callback(demo.getLive(chatId, uid)));
+  await sendMessage(user, { id: chatId, members: [user.uid, other.id].sort() }, `✅ Sounds good, see you at ${pickup.label}!`);
+}
+
+/** { [postId]: pickup } from all of this user's chats. */
+export function pickupsFromChats(chats) {
+  const all = {};
+  for (const chat of chats) Object.assign(all, chat.pickups || {});
+  return all;
 }
 
 // ---------- Demo mode (fake data saved in this browser) ----------
@@ -559,7 +568,7 @@ function seedPantry() {
 }
 
 const demo = (() => {
-  const listeners = { user: new Set(), posts: new Set(), pantry: new Set(), profile: new Set(), chats: new Set(), live: new Set() };
+  const listeners = { user: new Set(), posts: new Set(), pantry: new Set(), profile: new Set(), chats: new Set() };
   const load = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   };
@@ -576,7 +585,6 @@ const demo = (() => {
   let pantry = load("spareShelf.pantry", null) || seedPantry();
   const setPantry = (next) => { pantry = next; save("spareShelf.pantry", pantry); emit("pantry"); };
   let chats = load("spareShelf.chats", []);
-  let live = load("spareShelf.live", {}); // "chatId/uid" -> location
   let messages = load("spareShelf.messages", {});
   const saveChats = () => { save("spareShelf.chats", chats); save("spareShelf.messages", messages); emit("chats"); };
   const updateChat = (id, fn) => { chats = chats.map((c) => (c.id === id ? fn(c) : c)); };
@@ -622,13 +630,9 @@ const demo = (() => {
     removePantryItem(id) { setPantry(pantry.filter((i) => i.id !== id)); },
 
     getChats: () => [...chats],
-    getLive: (chatId, uid) => live[`${chatId}/${uid}`] || null,
-    setLive(chatId, uid, data) {
-      live = { ...live };
-      if (data) live[`${chatId}/${uid}`] = data;
-      else delete live[`${chatId}/${uid}`];
-      save("spareShelf.live", live);
-      emit("live");
+    setPickup(chatId, postId, value) {
+      updateChat(chatId, (c) => ({ ...c, pickups: { ...(c.pickups || {}), [postId]: value } }));
+      saveChats();
     },
     getMessages: (id) => [...(messages[id] || [])],
     ensureChat(id, info) {
@@ -673,7 +677,6 @@ export function resetDemoData() {
     localStorage.removeItem("spareShelf.pantry");
     localStorage.removeItem("spareShelf.chats");
     localStorage.removeItem("spareShelf.messages");
-    localStorage.removeItem("spareShelf.live");
   } catch { /* ignore */ }
   window.location.reload();
 }

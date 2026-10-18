@@ -1,7 +1,7 @@
 // The main screen. Holds the shared state (who's signed in + all posts)
 // and passes it down to the smaller components.
 import { useEffect, useRef, useState } from "react";
-import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, stopSharingLiveLocation, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
+import { watchUser, watchPosts, watchProfile, savePublicProfile, addLocationToPost, addClaimerLocation, setPickupSpot, acceptPickupSpot, pickupsFromChats, watchChats, ensureChat, isUnread, chatOther, signIn, signOut, isDemoMode, isProfileComplete, resetDemoData } from "./data";
 import ImpactBar from "./components/ImpactBar";
 import PostForm from "./components/PostForm";
 import PostCard from "./components/PostCard";
@@ -13,7 +13,6 @@ import Messages from "./components/Messages";
 import { milesToPost, publicPlaceLabel } from "./location";
 import MapPanel from "./components/MapPanel";
 import { useDeviceLocation } from "./useDeviceLocation";
-import { useLiveSharing } from "./useLiveSharing";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -163,43 +162,36 @@ export default function App() {
 
   const mapTarget = posts.find((p) => p.id === mapTargetId) || null;
 
-  // ---------- Live location ----------
-  // Your device location (the browser asks once the app is ready). Used for directions, and
-  // sent to the people you chose to share it with during a hand-off.
+  // ---------- Live location + pickup spots ----------
+  // Your device location (the browser asks once the app is ready), used as the start of directions.
   const device = useDeviceLocation(Boolean(complete));
-  const shareKey = uid ? `spareShelf.sharingWith.${uid}` : "";
-  const [sharingWith, setSharingWith] = useState([]); // uids I'm sharing my live location with
-  useEffect(() => {
-    let saved = [];
-    try { saved = JSON.parse(localStorage.getItem(shareKey) || "[]"); } catch { /* ignore */ }
-    setSharingWith(Array.isArray(saved) ? saved : []);
-  }, [shareKey]);
-  function saveSharing(list) {
-    setSharingWith(list);
-    try { localStorage.setItem(shareKey, JSON.stringify(list)); } catch { /* ignore */ }
-  }
-  function toggleSharing(otherId) {
-    if (sharingWith.includes(otherId)) {
-      saveSharing(sharingWith.filter((id) => id !== otherId));
-      stopSharingLiveLocation(user, otherId).catch((err) => console.error("Couldn't stop sharing:", err));
-    } else {
-      saveSharing([...sharingWith, otherId]);
+
+  // Pickup spots live in your chats: { [postId]: { lat, lng, label, accepted, ... } }.
+  const pickups = pickupsFromChats(chats);
+  const [pickingId, setPickingId] = useState(null); // post the giver is choosing a pickup spot for
+  const picking = posts.find((p) => p.id === pickingId) || null;
+
+  // "📍 Choose pickup spot": put the map in picking mode (and bring it into view on small screens).
+  function choosePickup(post) {
+    setMapTargetId(null);
+    setPickingId(post.id);
+    if (window.innerWidth <= 1200) {
+      const el = document.getElementById("map-panel");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
-  // People I have an active (claimed) hand-off with. Sharing stops automatically once there's none.
-  const partners = new Set(
-    posts.filter((p) => p.status === "claimed" && (p.ownerId === uid || p.claimedById === uid))
-      .map((p) => (p.ownerId === uid ? p.claimedById : p.ownerId))
-  );
-  const partnersKey = [...partners].sort().join(",");
-  useEffect(() => {
-    if (!user || posts.length === 0) return; // wait until posts have loaded
-    const done = sharingWith.filter((id) => !partners.has(id));
-    if (done.length === 0) return;
-    done.forEach((id) => stopSharingLiveLocation(user, id).catch(() => {}));
-    saveSharing(sharingWith.filter((id) => partners.has(id)));
-  }, [partnersKey, sharingWith.join(","), posts.length]);
-  useLiveSharing(user, device.pos, sharingWith);
+  async function savePickup(post, spot) {
+    await setPickupSpot(user, post, spot);
+    setPickingId(null);
+    setMapTargetId(post.id); // show the spot you just chose
+  }
+  async function acceptPickup(post) {
+    try {
+      await acceptPickupSpot(user, post, pickups[post.id]);
+    } catch (err) {
+      alert("Couldn't accept the pickup spot: " + err.message);
+    }
+  }
 
   // "🧭 Directions" buttons: select the post on the map. On narrow screens the map sits
   // above the page content, so scroll up to it.
@@ -332,7 +324,7 @@ export default function App() {
         ) : activeTab === "messages" ? (
           <Messages user={user} chats={chats} posts={posts} openWith={openChatWith}
             onOpen={setOpenChatWith} onBack={() => setOpenChatWith(null)} onDirections={showDirections}
-            sharingWith={sharingWith} onToggleShare={toggleSharing} liveOn={device.status === "on"} />
+            onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} />
         ) : (
         <>
           <div className="filters">
@@ -362,7 +354,8 @@ export default function App() {
               <p className="empty">Nothing here yet. Be the first to post!</p>
             ) : (
               visible.map((p, i) => (
-                <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onDirections={showDirections} index={i} />
+                <PostCard key={p.id} post={p} user={user} here={here} onMessage={openChat} onDirections={showDirections}
+                  pickup={pickups[p.id]} onChoosePickup={choosePickup} index={i} />
               ))
             )}
           </main>
@@ -374,6 +367,8 @@ export default function App() {
       {/* ---------- Right column: map + directions ---------- */}
       {showApp && (
         <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} device={device} posts={posts} user={user} target={mapTarget}
+          pickups={pickups} picking={picking} onChoosePickup={choosePickup}
+          onPickSave={savePickup} onPickCancel={() => setPickingId(null)}
           onSelect={(post) => setMapTargetId(post.id)} onClear={() => setMapTargetId(null)} />
       )}
     </div>

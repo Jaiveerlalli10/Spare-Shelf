@@ -12,13 +12,13 @@ import { chatStamp } from "../dates";
 import { foodEmoji } from "../foodEmoji";
 import Avatar from "./Avatar";
 import Handoff from "./Handoff";
-import { pickupSpot } from "../location";
+import { tripFor } from "../location";
 
 const GAP = 15 * 60 * 1000; // messages more than 15 minutes apart get a timestamp and a new group
 const EMOJI_ONLY = /^(\p{Extended_Pictographic}|️|‍|\s){1,12}$/u;
 
-// `sharing`: whether I'm sharing my live location with this person; `liveOn`: my device location works.
-export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections, sharing, onToggleShare, liveOn }) {
+// `onChoosePickup(post)`: giver picks/changes the pickup spot; `onAcceptPickup(post)`: receiver accepts it.
+export default function ChatView({ user, other, chats, posts, photoURL, onBack, onDirections, onChoosePickup, onAcceptPickup }) {
   const [byChat, setByChat] = useState({}); // chat id -> its messages
   const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
@@ -83,44 +83,63 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
   const active = posts.filter((p) => p.status === "claimed");
   const done = posts.find((p) => p.status === "completed");
   const stripPosts = active.length ? active : done ? [done] : [];
+  const pickups = primary.pickups || {};
   const strips = stripPosts.map((post) => {
-    const { giverName, receiverName } = handoffRoles(post);
+    const { giverId, giverName, receiverName } = handoffRoles(post);
     if (post.status === "completed") {
       return <div key={post.id} className="dm-strip done">🎉 Hand-off complete! {post.item} was added to {receiverName}'s pantry.</div>;
     }
+    const pickup = pickups[post.id];
+    const iGive = giverId === user.uid;
     return (
       <div key={post.id} className="dm-strip">
-        <span>
-          {foodEmoji(post.item)} <strong>{giverName}</strong> → <strong>{receiverName}</strong> · {post.item}
-          {post.quantity && ` (${post.quantity})`}
-        </span>
-        <span className="dm-strip-actions">
-          {/* The person receiving the food walks to the giver, so only they get directions. */}
-          {onDirections && pickupSpot(post, user) && (
-            <button className="dm-directions" onClick={() => onDirections(post)} title="Walking directions" aria-label={`Walking directions for ${post.item}`}>🧭</button>
+        <div className="dm-strip-row">
+          <span>
+            {foodEmoji(post.item)} <strong>{giverName}</strong> → <strong>{receiverName}</strong> · {post.item}
+            {post.quantity && ` (${post.quantity})`}
+          </span>
+          <span className="dm-strip-actions">
+            {/* Directions are for the person receiving the food. */}
+            {onDirections && tripFor(post, user, pickup) && (
+              <button className="dm-directions" onClick={() => onDirections(post)} title="Walking directions" aria-label={`Walking directions for ${post.item}`}>🧭</button>
+            )}
+            <Handoff post={post} user={user} />
+          </span>
+        </div>
+
+        {/* Pickup spot: the giver chooses (and can change) it, the receiver accepts it. */}
+        <div className={pickup && pickup.accepted ? "dm-pickup agreed" : "dm-pickup"}>
+          {iGive ? (
+            pickup ? (
+              <>
+                <span>📍 <strong>{pickup.label}</strong>{pickup.accepted ? ` · ✅ ${receiverName} accepted` : ` · waiting for ${receiverName} to accept`}</span>
+                {onChoosePickup && <button className="btn ghost small" onClick={() => onChoosePickup(post)}>Change</button>}
+              </>
+            ) : (
+              <>
+                <span>Where should {receiverName} pick it up?</span>
+                {onChoosePickup && <button className="btn primary small" onClick={() => onChoosePickup(post)}>📍 Choose pickup spot</button>}
+              </>
+            )
+          ) : pickup ? (
+            pickup.accepted ? (
+              <span>✅ Pickup at <strong>{pickup.label}</strong></span>
+            ) : (
+              <>
+                <span>📍 {giverName} suggests <strong>{pickup.label}</strong></span>
+                <span className="dm-strip-actions">
+                  {onDirections && <button className="btn ghost small" onClick={() => onDirections(post)}>View</button>}
+                  {onAcceptPickup && <button className="btn primary small" onClick={() => onAcceptPickup(post)}>Accept</button>}
+                </span>
+              </>
+            )
+          ) : (
+            <span className="muted">Waiting for {giverName} to choose a pickup spot.</span>
           )}
-          <Handoff post={post} user={user} />
-        </span>
+        </div>
       </div>
     );
   });
-  // Live location sharing (opt-in) while a hand-off is active.
-  const iGiveSomething = active.some((p) => handoffRoles(p).giverId === user.uid);
-  const liveBar = active.length > 0 && onToggleShare && (
-    <div className={sharing ? "dm-live on" : "dm-live"}>
-      <span>
-        {sharing
-          ? <>📡 Sharing your live location with <strong>{other.name}</strong> until the hand-off is done.</>
-          : iGiveSomething
-            ? <><strong>{other.name}</strong> is coming to you. Share your live location so they can find you.</>
-            : <>Share your live location with <strong>{other.name}</strong> so you can find each other.</>}
-        {!sharing && !liveOn && <span className="muted"> Turn on location first (see the map).</span>}
-      </span>
-      <button className={sharing ? "btn ghost small" : "btn primary small"} onClick={onToggleShare} disabled={!sharing && !liveOn}>
-        {sharing ? "Stop sharing" : "📡 Share live location"}
-      </button>
-    </div>
-  );
   const topic = active.length ? active.map((p) => p.item).join(", ") : (posts[0] && posts[0].item) || primary.item || "";
 
   return (
@@ -137,7 +156,6 @@ export default function ChatView({ user, other, chats, posts, photoURL, onBack, 
       </header>
 
       {strips.length > 0 && <div className="dm-strips">{strips}</div>}
-      {liveBar}
 
       <div className="dm-thread" ref={threadRef}>
         {/* Profile intro at the top of the thread, like Instagram */}
