@@ -64,7 +64,11 @@ export default function PostCard({ post, user, here, onMessage, onClaim, onRevie
   }
 
   return (
-    <article id={`post-${post.id}`} className={`card post ${post.type}${focused ? " focused" : ""}`} style={{ "--i": Math.min(index, 8) }}>
+    <article id={`post-${post.id}`} className={`card post ${post.type}${focused ? " focused" : ""}`} style={{ "--i": Math.min(index, 8) }}
+      onClick={(e) => {
+        if (!onDirections || e.target.closest("button, a, input, textarea, select")) return;
+        onDirections(post);
+      }}>
       <div className="ticket-head">
         <span className="ticket-kind">{isOffer ? "Offer" : "Request"}</span>
       </div>

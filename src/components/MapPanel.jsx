@@ -15,10 +15,19 @@ const CAMPUS = [47.6553, -122.3035]; // fallback center: UW Seattle
 const TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const ROUTE_COLOR = "#a334fa";
-// Post pins are turned off for now. Set to true to show an emoji pin for every active post again.
-const SHOW_POST_PINS = false;
 
 const hasSpot = (p) => p && Number.isFinite(p.approxLat) && Number.isFinite(p.approxLng);
+
+// Offers use the suggested pickup spot when there is one, otherwise the poster's housing.
+// Requests always use the poster's housing.
+function locatePost(post, pickups) {
+  if (post && post.type === "offer") {
+    const spot = pickups[post.id];
+    if (spot && Number.isFinite(spot.lat) && Number.isFinite(spot.lng)) return { lat: spot.lat, lng: spot.lng };
+  }
+  if (hasSpot(post)) return { lat: post.approxLat, lng: post.approxLng };
+  return null;
+}
 
 const REROUTE_METERS = 20; // walk this far from where the route started before it re-routes
 
@@ -27,7 +36,7 @@ const REROUTE_METERS = 20; // walk this far from where the route started before 
 // `pickups`: { [postId]: pickup spot in effect }. `picking`: { key, subtitle, initial } while choosing a spot (or null).
 // Directions go from your live location (or `here`) to the pickup spot, or the giver's area if none is set yet.
 export default function MapPanel({
-  here, homeLabel, device, posts, user, target, pickups = {}, picking,
+  here, homeLabel, device, posts, user, target, overview = false, pickups = {}, picking,
   onSelect, onClear, onChoosePickup, onAcceptPickup, onDeclinePickup, onDeclineForGood, declinedPickups = {}, onPickSave, onPickCancel, liveShare,
 }) {
   const boxRef = useRef(null);
@@ -108,48 +117,58 @@ export default function MapPanel({
     meRef.current.circle.setRadius(showCircle ? origin.accuracy : 0);
     meRef.current.circle.setStyle({ opacity: showCircle ? 0.5 : 0, fillOpacity: showCircle ? 0.12 : 0 });
     const mode = origin.live ? "live" : "home";
-    if (!target && centeredOn.current !== mode) {
+    if (!overview && !target && centeredOn.current !== mode) {
       centeredOn.current = mode;
       map.setView([origin.lat, origin.lng], map.getZoom());
     }
-  }, [origin?.lat, origin?.lng, origin?.live, origin?.accuracy]);
+  }, [origin?.lat, origin?.lng, origin?.live, origin?.accuracy, overview, target]);
 
-  // A pin for every post that isn't finished (only when SHOW_POST_PINS is on).
+  // On the board, with nothing selected: a pin for every open offer and request.
+  // A selected ticket replaces that with just that one post (drawn with the directions below).
+  const pinSignature = posts.map((p) => {
+    const at = locatePost(p, pickups);
+    return `${p.id}:${p.status}:${at ? `${at.lat},${at.lng}` : ""}`;
+  }).join(";");
+  const fittedPins = useRef("");
   useEffect(() => {
     const layer = pinsRef.current;
-    if (!layer) return;
+    const map = mapRef.current;
+    if (!layer || !map) return;
     layer.clearLayers();
-    if (!SHOW_POST_PINS) return;
+    if (!overview || target || picking) {
+      fittedPins.current = "";
+      return;
+    }
+    const spots = [];
     const perSpot = {};
     for (const p of posts) {
-      if (p.status === "completed" || !hasSpot(p)) continue;
-      // Posts from the same building share a rounded spot, so fan them out a little.
-      const key = `${p.approxLat},${p.approxLng}`;
+      if (p.status !== "open") continue;
+      const at = locatePost(p, pickups);
+      if (!at) continue;
+      // Posts from the same building share a spot, so fan them out a little.
+      const key = `${at.lat.toFixed(5)},${at.lng.toFixed(5)}`;
       const n = (perSpot[key] = (perSpot[key] || 0) + 1);
       const r = n === 1 ? 0 : 0.00016 * Math.sqrt(n);
-      const lat = p.approxLat + r * Math.cos(n * 2.4);
-      const lng = p.approxLng + r * Math.sin(n * 2.4) * 1.5;
-
-      const classes = ["map-pin", p.type];
-      if (target && target.id === p.id) classes.push("selected");
-      if (user && p.ownerId === user.uid) classes.push("mine");
-      L.marker([lat, lng], {
-        icon: L.divIcon({
-          className: classes.join(" "),
-          html: `<span class="pin"><span class="pin-emoji">${foodEmoji(p.item)}</span></span>`,
-          iconSize: [40, 40],
-          iconAnchor: [20, 40],
-        }),
-        title: `${p.ownerName} is ${p.type === "offer" ? "offering" : "requesting"} ${p.item}`,
-        zIndexOffset: target && target.id === p.id ? 900 : 0,
-      })
+      const lat = at.lat + r * Math.cos(n * 2.4);
+      const lng = at.lng + r * Math.sin(n * 2.4) * 1.5;
+      spots.push([lat, lng]);
+      itemMarker(p, lat, lng, { mine: user && p.ownerId === user.uid })
         .on("click", () => onSelectRef.current(p))
         .addTo(layer);
     }
-  }, [posts, target?.id, user?.uid]);
+    const fitKey = spots.map(([lat, lng]) => `${lat.toFixed(5)},${lng.toFixed(5)}`).join("|");
+    if (spots.length && fittedPins.current !== fitKey) {
+      fittedPins.current = fitKey;
+      const bounds = L.latLngBounds(spots);
+      if (here && Number.isFinite(here.lat) && Number.isFinite(here.lng)) bounds.extend([here.lat, here.lng]);
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    }
+  }, [pinSignature, overview, target, picking, user?.uid, here?.lat, here?.lng]);
 
-  // Active posts with no saved location (posted before locations were saved), so no directions yet.
-  const unpinned = posts.filter((p) => p.status !== "completed" && !hasSpot(p)).length;
+  // Open posts with no housing location and no pickup spot, so they can't be pinned.
+  const unpinned = overview
+    ? posts.filter((p) => p.status === "open" && !locatePost(p, pickups)).length
+    : 0;
 
   // Where you're walking: the pickup spot (agreed or suggested), or the giver's area if none yet.
   const targetPickup = target ? pickups[target.id] : null;
@@ -196,11 +215,15 @@ export default function MapPanel({
     if (!routeFrom || !goal || !routeTo) {
       // No trip for you. If you're the giver and chose a pickup spot, show it; otherwise show the post's area.
       setRouteState("idle");
-      if (targetPickup) {
+      const at = locatePost(target, pickups);
+      if (target.type !== "request" && targetPickup) {
         routeRef.current = L.featureGroup([pickupMarker(targetPickup, targetPickup.accepted)]).addTo(map);
         map.setView([targetPickup.lat, targetPickup.lng], Math.max(map.getZoom(), 16));
-      } else if (hasSpot(target)) {
-        map.setView([target.approxLat, target.approxLng], Math.max(map.getZoom(), 16));
+      } else if (at) {
+        routeRef.current = L.featureGroup([
+          itemMarker(target, at.lat, at.lng, { selected: true, mine: user && target.ownerId === user.uid }),
+        ]).addTo(map);
+        map.setView([at.lat, at.lng], Math.max(map.getZoom(), 16));
       }
       return;
     }
@@ -432,7 +455,7 @@ export default function MapPanel({
       <div className="map-head">
         <h2>🗺️ Map</h2>
         <span className="map-legend">
-          {SHOW_POST_PINS && <><i className="lg offer" /> Offers <i className="lg request" /> Requests</>} <i className="lg me" /> You
+          {overview && <><i className="lg offer" /> Offers <i className="lg request" /> Requests </>}<i className="lg me" /> You
         </span>
       </div>
 
@@ -626,9 +649,11 @@ export default function MapPanel({
         </div>
       ) : (
         <p className="map-hint muted">
-          {here
-            ? `Tap a post's 🧭 Directions button for walking directions${SHOW_POST_PINS ? ", or tap a pin" : ""}.`
-            : "Sign in and finish your profile to get directions."}
+          {overview
+            ? "Offers and requests nearby. Click a ticket or a pin to see just that one."
+            : here
+              ? "Tap a post's 🧭 Directions button for walking directions."
+              : "Sign in and finish your profile to get directions."}
           {unpinned > 0 && (
             <span className="map-unpinned">
               {" "}{unpinned} {unpinned === 1 ? "post has" : "posts have"} no location yet ({unpinned === 1 ? "it was" : "they were"} posted
@@ -671,6 +696,23 @@ function LocationNotice({ device }) {
       {canRetry && <button className="btn small primary" onClick={device.retry}>Try again</button>}
     </div>
   );
+}
+
+/** Food pin for one post. */
+function itemMarker(post, lat, lng, { selected = false, mine = false } = {}) {
+  const classes = ["map-pin", post.type];
+  if (selected) classes.push("selected");
+  if (mine) classes.push("mine");
+  return L.marker([lat, lng], {
+    icon: L.divIcon({
+      className: classes.join(" "),
+      html: `<span class="pin"><span class="pin-emoji">${foodEmoji(post.item)}</span></span>`,
+      iconSize: [40, 40],
+      iconAnchor: [20, 40],
+    }),
+    title: `${post.ownerName} is ${post.type === "offer" ? "offering" : "requesting"} ${post.item}`,
+    zIndexOffset: selected ? 900 : 0,
+  });
 }
 
 /** 📍 marker for a pickup spot (green check once accepted). `draggable` while the giver is choosing it. */

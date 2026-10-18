@@ -310,7 +310,7 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 .feed { display: flex; flex-direction: column; }
 .post {
   position: relative; display: flex; flex-direction: column; gap: 12px; align-items: stretch;
-  padding: 18px 18px 16px;
+  padding: 18px 18px 16px; cursor: pointer;
   font-family: var(--font-body); font-size: 1rem; font-weight: 400; line-height: 1.45;
   border-style: dashed;
   background-image: radial-gradient(circle at 10px 0, var(--bg) 4.5px, transparent 5px);

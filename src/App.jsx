@@ -379,6 +379,10 @@ export default function App() {
   // "🧭 Directions" buttons: select the post on the map. On narrow screens the map sits
   // above the page content, so scroll up to it.
   function showDirections(post) {
+    if (mapTargetId === post.id) {
+      setMapTargetId(null);
+      return;
+    }
     setMapTargetId(post.id);
     if (window.innerWidth <= 1200) {
       const el = document.getElementById("map-panel");
@@ -572,6 +576,11 @@ export default function App() {
                   />
                   mi
                 </label>
+                {radius && (
+                  <button type="button" className="chip" onClick={() => setRadius("")}>
+                    Clear filter
+                  </button>
+                )}
               </>
             )}
             <input
@@ -621,6 +630,7 @@ export default function App() {
       {/* ---------- Right column: map + directions ---------- */}
       {showApp && activeTab !== "community" && (
         <MapPanel here={here} homeLabel={complete ? profile.housingLabel : ""} device={device} posts={posts} user={user} target={mapTarget}
+          overview={activeTab === "board" && !mapTarget && !pickRequest}
           pickups={pickups} picking={pickRequest} onChoosePickup={choosePickup} onAcceptPickup={acceptPickup} onDeclinePickup={declinePickup} onDeclineForGood={declineForGood}
           declinedPickups={declinedPickups} liveShare={liveShare}
           onPickSave={savePick} onPickCancel={() => setPickRequest(null)}
