@@ -420,6 +420,7 @@ export default function App() {
     <div className={showApp && activeTab !== "community" ? "layout with-map" : "layout"}>
       {/* ---------- Left column: brand, you, navigation, impact ---------- */}
       <aside className="sidebar">
+        <div className="sidebar-body">
         <div className="brand">
           <span className="logo" aria-hidden>
             <span className="logo-unit">
@@ -476,12 +477,6 @@ export default function App() {
           </nav>
         )}
 
-        {showApp && user && (
-          <button className="btn primary block new-post" onClick={toggleNewPost}>
-            {showForm && onPostsTab ? "Close form" : "+ New post"}
-          </button>
-        )}
-
         {showApp && (
           <section className="sidebar-section">
             <h2 className="sidebar-heading">Community impact</h2>
@@ -496,6 +491,12 @@ export default function App() {
         <p className="sidebar-note">
           Only share sealed or fresh food, list allergens in the notes, and meet in public spots.
         </p>
+        </div>
+        {showApp && user && (
+          <button className="btn primary block new-post" onClick={toggleNewPost}>
+            {showForm && onPostsTab ? "Close form" : "+ New post"}
+          </button>
+        )}
       </aside>
 
       {/* ---------- Right column: the current page ---------- */}

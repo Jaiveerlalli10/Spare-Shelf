@@ -132,11 +132,16 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.01em; }
 
 /* ---------- Sidebar ---------- */
 .sidebar {
-  position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 16px;
+  position: sticky; top: 24px; height: calc(100vh - 48px); max-height: calc(100vh - 48px);
+  display: flex; flex-direction: column; gap: 16px; overflow: hidden;
   padding: 20px; border-radius: 0;
   background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow);
   backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  scrollbar-width: thin; scrollbar-color: var(--surface-2) transparent;
+}
+.sidebar-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 16px;
   scrollbar-width: thin; scrollbar-color: var(--surface-2) transparent;
 }
 .sidebar .card { margin: 0; }
@@ -199,6 +204,7 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 .nav-item .tab-count { margin-left: auto; }
 
 .btn.new-post {
+  flex-shrink: 0;
   padding: 13px 16px; font-size: 1rem; color: var(--cream);
   background: var(--grad-warm); background-size: 180% 180%;
   box-shadow: none;
@@ -716,7 +722,13 @@ html { scrollbar-color: var(--surface-2) var(--bg); }
 /* ---------- Phones and small tablets ---------- */
 @media (max-width: 900px) {
   .layout { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 16px; }
-  .sidebar { position: static; max-height: none; overflow: visible; padding: 16px; border-radius: 0; }
+  .sidebar { position: static; height: auto; max-height: none; overflow: visible; padding: 16px; border-radius: 0; }
+  .sidebar-body { overflow: visible; }
+  .layout:has(.new-post) { padding-bottom: 88px; }
+  .btn.new-post {
+    position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 30; width: auto;
+    box-shadow: var(--shadow-lift);
+  }
   .nav { flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 2px; scrollbar-width: none; }
   .nav-item { width: auto; flex-shrink: 0; padding: 6px 12px 6px 6px; }
   .nav-icon { width: 30px; height: 30px; }
