@@ -25,6 +25,7 @@ export default function App() {
   const [tab, setTab] = useState("board"); // "board", "community", "mine", "history", "pantry", "recipes" or "messages"
   const [filter, setFilter] = useState("all"); // "all", "offer", "request"
   const [sort, setSort] = useState("newest"); // "newest" or "nearest"
+  const [radius, setRadius] = useState(""); // "", or miles as a string: "0.5", "1", "2", "3", "4", "5"
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState(null); // pre-filled post when sharing from the pantry
@@ -181,6 +182,10 @@ export default function App() {
     if (activeTab === "mine" && !(involved && p.status !== "completed")) return false;
     if (activeTab === "history" && !(involved && p.status === "completed" && !clearedFromHistory(p, user))) return false;
     if (filter !== "all" && p.type !== filter) return false;
+    if (activeTab === "board" && radius && here) {
+      const miles = milesToPost(here, p);
+      if (miles == null || miles > Number(radius)) return false;
+    }
     if (term && !`${p.item} ${p.location} ${p.notes} ${p.ownerName}`.toLowerCase().includes(term)) return false;
     return true;
   });
@@ -197,12 +202,14 @@ export default function App() {
     const mine = user && (post.ownerId === user.uid || post.claimedById === user.uid);
     setTab(!mine ? "board" : post.status === "completed" ? "history" : "mine");
     setFilter("all");
+    setRadius("");
     setSearch("");
     setFocusPostId(post.id);
   }
   function openPerson(person) {
     setTab(user && person.uid === user.uid ? "mine" : "board");
     setFilter("all");
+    setRadius("");
     setSearch(user && person.uid === user.uid ? "" : person.name || "");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -530,6 +537,43 @@ export default function App() {
                 {sort === "newest" ? "↕ Newest" : "↕ Nearest"}
               </button>
             )}
+            {activeTab === "board" && here && (
+              <>
+                <select className="radius" value={["0.5", "1", "2", "3", "4", "5"].includes(radius) ? radius : radius ? "custom" : ""}
+                  onChange={(e) => { if (e.target.value !== "custom") setRadius(e.target.value); }}
+                  aria-label="Filter by distance">
+                  <option value="">Any distance</option>
+                  <option value="0.5">Within 0.5 miles</option>
+                  <option value="1">Within 1 mile</option>
+                  <option value="2">Within 2 miles</option>
+                  <option value="3">Within 3 miles</option>
+                  <option value="4">Within 4 miles</option>
+                  <option value="5">Within 5 miles</option>
+                  {radius && !["0.5", "1", "2", "3", "4", "5"].includes(radius) && (
+                    <option value="custom">Within {radius} miles</option>
+                  )}
+                </select>
+                <label className="radius-custom">
+                  <input
+                    className="radius miles"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    inputMode="decimal"
+                    placeholder="Miles"
+                    value={radius}
+                    aria-label="Custom distance in miles"
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === "") { setRadius(""); return; }
+                      const n = Number(value);
+                      if (Number.isFinite(n) && n > 0) setRadius(value);
+                    }}
+                  />
+                  mi
+                </label>
+              </>
+            )}
             <input
               className="search"
               placeholder="Search eggs, rice, Alder Hall…"
@@ -557,7 +601,9 @@ export default function App() {
                     ? "Nothing shared yet. Finished hand-offs show up here."
                     : activeTab === "mine"
                       ? "Nothing in progress. Post something or claim a neighbor's offer."
-                      : "Nothing here yet. Be the first to post!"}
+                      : radius
+                        ? `Nothing within ${radius} mile${radius === "1" ? "" : "s"}.`
+                        : "Nothing here yet. Be the first to post!"}
                 </p>
               </div>
             ) : (
