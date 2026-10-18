@@ -23,9 +23,11 @@ const hasSpot = (p) => p && Number.isFinite(p.approxLat) && Number.isFinite(p.ap
 function locatePost(post, pickups) {
   if (post && post.type === "offer") {
     const spot = pickups[post.id];
-    if (spot && Number.isFinite(spot.lat) && Number.isFinite(spot.lng)) return { lat: spot.lat, lng: spot.lng };
+    if (spot && Number.isFinite(spot.lat) && Number.isFinite(spot.lng)) {
+      return { lat: spot.lat, lng: spot.lng, kind: "listed", label: spot.label || post.location };
+    }
   }
-  if (hasSpot(post)) return { lat: post.approxLat, lng: post.approxLng };
+  if (hasSpot(post)) return { lat: post.approxLat, lng: post.approxLng, kind: "area", label: post.location };
   return null;
 }
 
@@ -172,7 +174,17 @@ export default function MapPanel({
 
   // Where you're walking: the pickup spot (agreed or suggested), or the giver's area if none yet.
   const targetPickup = target ? pickups[target.id] : null;
-  const goal = target ? tripFor(target, user, targetPickup) : null;
+  const located = target ? locatePost(target, pickups) : null;
+  // tripFor is the hand-off route (pickup spot, or an offer's area). A request has no
+  // hand-off yet, so still route to the poster's housing, which is where the pin sits.
+  const walked = target ? tripFor(target, user, targetPickup) : null;
+  const goal = walked || (located && user && target.ownerId !== user.uid ? {
+    lat: located.lat,
+    lng: located.lng,
+    name: target.ownerName,
+    label: located.label || "their place",
+    kind: located.kind,
+  } : null);
   // You're the giver: of a claimed hand-off, or of your own offer nobody has claimed yet.
   const openOffer = target && target.status === "open" && target.type === "offer";
   const iGive = Boolean(target && user && (target.status === "claimed"
@@ -212,7 +224,9 @@ export default function MapPanel({
       setRouteState("idle");
       return;
     }
-    if (!routeFrom || !goal || !routeTo) {
+    // Use the goal itself when routeTo hasn't caught up yet, so the first click still draws the walk.
+    const to = routeTo || (goal ? { lat: goal.lat, lng: goal.lng, kind: goal.kind } : null);
+    if (!routeFrom || !to) {
       // No trip for you. If you're the giver and chose a pickup spot, show it; otherwise show the post's area.
       setRouteState("idle");
       const at = locatePost(target, pickups);
@@ -227,21 +241,20 @@ export default function MapPanel({
       }
       return;
     }
-    const to = { lat: routeTo.lat, lng: routeTo.lng };
 
     // Mark where you're going: the pickup spot, or a 🤝 at the giver's area if none is chosen yet.
-    const endMarker = routeTo.kind === "area"
+    const endMarker = to.kind === "area"
       ? L.marker([to.lat, to.lng], {
           icon: L.divIcon({ className: "map-dest", html: "<span>🤝</span>", iconSize: [30, 30] }),
           title: `${goal.name}'s area`,
           zIndexOffset: 950,
         })
-      : pickupMarker({ ...to, label: goal.label }, routeTo.kind === "agreed");
+      : pickupMarker({ ...to, label: goal.label }, to.kind === "agreed");
     const from = routeFrom;
     const draw = (layers) => {
       routeRef.current = L.featureGroup([...layers, endMarker]).addTo(map);
       // Zoom to the whole route when it's a new destination, not on every re-route while walking.
-      const fitKey = `${target.id}:${routeTo.kind}:${routeTo.lat},${routeTo.lng}`;
+      const fitKey = `${target.id}:${to.kind}:${to.lat},${to.lng}`;
       if (fittedFor.current !== fitKey) {
         fittedFor.current = fitKey;
         map.fitBounds(routeRef.current.getBounds(), { padding: [48, 48], maxZoom: 17 });
@@ -268,7 +281,7 @@ export default function MapPanel({
         setRouteState("ready");
       });
     return () => ctrl.abort();
-  }, [target?.id, routeTo?.lat, routeTo?.lng, routeTo?.kind, routeFrom?.lat, routeFrom?.lng,
+  }, [target?.id, goal?.lat, goal?.lng, goal?.kind, routeTo?.lat, routeTo?.lng, routeTo?.kind, routeFrom?.lat, routeFrom?.lng,
       targetPickup?.lat, targetPickup?.lng, targetPickup?.accepted]);
 
   // ---------- Picking mode: the giver drags a pin (or searches an address) to choose the pickup spot ----------
@@ -597,7 +610,10 @@ export default function MapPanel({
                     )}
                 </>
               )}
-              {goal.kind === "area" && (
+              {goal.kind === "area" && target.type === "request" && (
+                <>🏠 To {goal.name}'s place</>
+              )}
+              {goal.kind === "area" && target.type !== "request" && (
                 <>🏠 To {goal.name}'s area<span className="muted"> · {target.status === "claimed" ? `${goal.name} hasn't chosen a pickup spot yet.` : "Claim it, and they'll choose a pickup spot."}</span></>
               )}
             </p>
